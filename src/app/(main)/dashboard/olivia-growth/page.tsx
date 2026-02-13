@@ -6,19 +6,19 @@ export default function OliviaGrowthPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">🌱 Olivia Growth</h1>
-        <p className="text-muted-foreground mt-2">Growth-focused investment strategy</p>
+        <h1 className="font-bold text-3xl tracking-tight">🌱 Olivia Growth</h1>
+        <p className="mt-2 text-muted-foreground">Growth-focused investment strategy</p>
       </div>
 
       <Card>
         <CardHeader>
-          <Construction className="h-12 w-12 text-muted-foreground mb-4" />
+          <Construction className="mb-4 h-12 w-12 text-muted-foreground" />
           <CardTitle>Under Construction</CardTitle>
           <CardDescription>This page is currently being built. Check back soon!</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">The Olivia Growth portfolio page will include:</p>
-          <ul className="list-disc list-inside mt-4 space-y-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">The Olivia Growth portfolio page will include:</p>
+          <ul className="mt-4 list-inside list-disc space-y-2 text-muted-foreground text-sm">
             <li>Growth metrics and performance tracking</li>
             <li>Portfolio composition and top holdings</li>
             <li>Growth rate analysis and projections</li>

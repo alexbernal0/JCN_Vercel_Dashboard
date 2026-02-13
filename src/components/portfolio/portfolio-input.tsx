@@ -12,29 +12,32 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DEFAULT_HOLDINGS, MAX_POSITIONS, type PortfolioHolding } from "@/types/portfolio-input";
 
 interface PortfolioInputProps {
-  onDataChange?: (holdings: PortfolioHolding[]) => void;
+  initialPositions?: (PortfolioHolding | Omit<PortfolioHolding, "id">)[];
+  onPositionsChange?: (positions: Omit<PortfolioHolding, "id">[]) => void;
 }
 
-export function PortfolioInput({ onDataChange }: PortfolioInputProps) {
+export function PortfolioInput({ initialPositions, onPositionsChange }: PortfolioInputProps) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize holdings with default data
+  // Initialize holdings with provided or default data
   useEffect(() => {
-    const initialHoldings = DEFAULT_HOLDINGS.map((holding, index) => ({
+    const source = initialPositions && initialPositions.length > 0 ? initialPositions : DEFAULT_HOLDINGS;
+    const initialHoldings = source.map((holding, index) => ({
       ...holding,
       id: `holding-${index}`,
     }));
     setHoldings(initialHoldings);
-  }, []);
+  }, [initialPositions]);
 
   // Notify parent component of data changes
   useEffect(() => {
-    if (onDataChange && holdings.length > 0) {
-      onDataChange(holdings);
+    if (onPositionsChange && holdings.length > 0) {
+      const positions = holdings.map(({ symbol, costBasis, shares }) => ({ symbol, costBasis, shares }));
+      onPositionsChange(positions);
     }
-  }, [holdings, onDataChange]);
+  }, [holdings, onPositionsChange]);
 
   const handleEdit = () => {
     setIsEditMode(true);
@@ -119,14 +122,14 @@ export function PortfolioInput({ onDataChange }: PortfolioInputProps) {
       <CardContent className="space-y-4">
         {/* Mode Indicator */}
         {isEditMode ? (
-          <Alert className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+          <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
             <LockOpen className="h-4 w-4" />
             <AlertDescription className="font-medium">
               ✏️ Edit Mode Active - You can now modify the portfolio. Click 'Save' when done.
             </AlertDescription>
           </Alert>
         ) : (
-          <Alert className="bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
+          <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
             <Lock className="h-4 w-4" />
             <AlertDescription className="font-medium">
               🔒 View Mode - Portfolio is locked. Click 'Edit' to make changes.
@@ -142,7 +145,7 @@ export function PortfolioInput({ onDataChange }: PortfolioInputProps) {
         )}
 
         {/* Portfolio Table */}
-        <div className="border rounded-lg overflow-hidden">
+        <div className="overflow-hidden rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -190,7 +193,7 @@ export function PortfolioInput({ onDataChange }: PortfolioInputProps) {
                       <Input
                         type="number"
                         value={holding.shares}
-                        onChange={(e) => handleCellChange(holding.id, "shares", parseInt(e.target.value) || 0)}
+                        onChange={(e) => handleCellChange(holding.id, "shares", parseInt(e.target.value, 10) || 0)}
                         placeholder="0"
                         step="1"
                         min="0"

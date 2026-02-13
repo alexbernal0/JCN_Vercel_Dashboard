@@ -1,13 +1,11 @@
-import { Construction } from "lucide-react";
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function HomePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">JCN Financial Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Investment Dashboard - Welcome</p>
+        <h1 className="font-bold text-3xl tracking-tight">JCN Financial Dashboard</h1>
+        <p className="mt-2 text-muted-foreground">Investment Dashboard - Welcome</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -17,7 +15,7 @@ export default function HomePage() {
             <CardDescription>Value-focused investment strategy with long-term growth potential</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">View portfolio performance, holdings, and analytics</p>
+            <p className="text-muted-foreground text-sm">View portfolio performance, holdings, and analytics</p>
           </CardContent>
         </Card>
 
@@ -27,7 +25,7 @@ export default function HomePage() {
             <CardDescription>Growth-focused investment strategy</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Track growth metrics and portfolio composition</p>
+            <p className="text-muted-foreground text-sm">Track growth metrics and portfolio composition</p>
           </CardContent>
         </Card>
 
@@ -37,7 +35,7 @@ export default function HomePage() {
             <CardDescription>Alpha-generating investment strategy</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Monitor alpha generation and risk-adjusted returns</p>
+            <p className="text-muted-foreground text-sm">Monitor alpha generation and risk-adjusted returns</p>
           </CardContent>
         </Card>
 
@@ -47,7 +45,7 @@ export default function HomePage() {
             <CardDescription>Individual stock research and analysis</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Deep dive into individual stock fundamentals and technicals</p>
+            <p className="text-muted-foreground text-sm">Deep dive into individual stock fundamentals and technicals</p>
           </CardContent>
         </Card>
 
@@ -57,7 +55,7 @@ export default function HomePage() {
             <CardDescription>Broad market trends and sector analysis</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Analyze market trends, sectors, and economic indicators</p>
+            <p className="text-muted-foreground text-sm">Analyze market trends, sectors, and economic indicators</p>
           </CardContent>
         </Card>
 
@@ -67,7 +65,7 @@ export default function HomePage() {
             <CardDescription>Portfolio risk assessment and management</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               Evaluate portfolio risk, correlations, and hedging strategies
             </p>
           </CardContent>
@@ -80,18 +78,18 @@ export default function HomePage() {
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div>
-            <h3 className="font-semibold mb-2">Real-time Data</h3>
-            <p className="text-sm text-muted-foreground">
+            <h3 className="mb-2 font-semibold">Real-time Data</h3>
+            <p className="text-muted-foreground text-sm">
               All portfolio data is updated in real-time using market feeds
             </p>
           </div>
           <div>
-            <h3 className="font-semibold mb-2">Comprehensive Analysis</h3>
-            <p className="text-sm text-muted-foreground">Detailed performance metrics and risk assessments</p>
+            <h3 className="mb-2 font-semibold">Comprehensive Analysis</h3>
+            <p className="text-muted-foreground text-sm">Detailed performance metrics and risk assessments</p>
           </div>
           <div>
-            <h3 className="font-semibold mb-2">Multi-Portfolio</h3>
-            <p className="text-sm text-muted-foreground">Track multiple investment strategies simultaneously</p>
+            <h3 className="mb-2 font-semibold">Multi-Portfolio</h3>
+            <p className="text-muted-foreground text-sm">Track multiple investment strategies simultaneously</p>
           </div>
         </CardContent>
       </Card>

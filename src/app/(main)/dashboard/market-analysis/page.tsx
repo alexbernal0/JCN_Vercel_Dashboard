@@ -6,19 +6,19 @@ export default function MarketAnalysisPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">🌐 Market Analysis</h1>
-        <p className="text-muted-foreground mt-2">Broad market trends and sector analysis</p>
+        <h1 className="font-bold text-3xl tracking-tight">🌐 Market Analysis</h1>
+        <p className="mt-2 text-muted-foreground">Broad market trends and sector analysis</p>
       </div>
 
       <Card>
         <CardHeader>
-          <Construction className="h-12 w-12 text-muted-foreground mb-4" />
+          <Construction className="mb-4 h-12 w-12 text-muted-foreground" />
           <CardTitle>Under Construction</CardTitle>
           <CardDescription>This page is currently being built. Check back soon!</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">The Market Analysis page will include:</p>
-          <ul className="list-disc list-inside mt-4 space-y-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground text-sm">The Market Analysis page will include:</p>
+          <ul className="mt-4 list-inside list-disc space-y-2 text-muted-foreground text-sm">
             <li>Market indices performance and trends</li>
             <li>Sector rotation and relative strength</li>
             <li>Economic indicators and macro analysis</li>

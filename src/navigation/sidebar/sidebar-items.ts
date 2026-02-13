@@ -1,15 +1,4 @@
-import {
-  BarChart3,
-  Globe,
-  Home,
-  Info,
-  LineChart,
-  type LucideIcon,
-  Shield,
-  Sprout,
-  TrendingUp,
-  Zap,
-} from "lucide-react";
+import { BarChart3, Globe, Home, Info, LineChart, type LucideIcon, Shield, Sprout, Zap } from "lucide-react";
 
 export interface NavSubItem {
   title: string;

@@ -16,6 +16,9 @@ export interface PortfolioInputData {
   lastUpdated: string;
 }
 
+// Type alias for API compatibility
+export type PortfolioPosition = Omit<PortfolioHolding, "id">;
+
 export const DEFAULT_HOLDINGS: Omit<PortfolioHolding, "id">[] = [
   { symbol: "SPMO", costBasis: 97.4, shares: 14301 },
   { symbol: "ASML", costBasis: 660.32, shares: 1042 },

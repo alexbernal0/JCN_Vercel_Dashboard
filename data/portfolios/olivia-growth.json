@@ -1,0 +1,135 @@
+{
+  "id": "olivia-growth",
+  "name": "Olivia Growth",
+  "description": "An aggressive growth portfolio focused on high-potential technology and innovation-driven companies.",
+  "totalValue": 850000.00,
+  "cashBalance": 25000.00,
+  "investedValue": 825000.00,
+  "performance": {
+    "ytd": 15.8,
+    "oneMonth": 3.5,
+    "threeMonth": 12.4,
+    "sixMonth": 22.1,
+    "oneYear": 28.7,
+    "threeYear": 68.5,
+    "fiveYear": 142.3,
+    "inception": 215.6
+  },
+  "performanceHistory": [
+    { "date": "2025-02-13", "value": 650000, "benchmark": 600000 },
+    { "date": "2025-03-13", "value": 680000, "benchmark": 625000 },
+    { "date": "2025-04-13", "value": 710000, "benchmark": 650000 },
+    { "date": "2025-05-13", "value": 695000, "benchmark": 640000 },
+    { "date": "2025-06-13", "value": 735000, "benchmark": 670000 },
+    { "date": "2025-07-13", "value": 760000, "benchmark": 690000 },
+    { "date": "2025-08-13", "value": 745000, "benchmark": 680000 },
+    { "date": "2025-09-13", "value": 785000, "benchmark": 710000 },
+    { "date": "2025-10-13", "value": 805000, "benchmark": 730000 },
+    { "date": "2025-11-13", "value": 825000, "benchmark": 750000 },
+    { "date": "2025-12-13", "value": 840000, "benchmark": 765000 },
+    { "date": "2026-01-13", "value": 835000, "benchmark": 760000 },
+    { "date": "2026-02-13", "value": 850000, "benchmark": 775000 }
+  ],
+  "holdings": [
+    {
+      "symbol": "NVDA",
+      "name": "NVIDIA Corporation",
+      "shares": 200,
+      "avgCost": 450.00,
+      "currentPrice": 875.00,
+      "marketValue": 175000.00,
+      "weight": 20.6,
+      "gainLoss": 85000.00,
+      "gainLossPercent": 94.44,
+      "sector": "Technology"
+    },
+    {
+      "symbol": "TSLA",
+      "name": "Tesla Inc.",
+      "shares": 500,
+      "avgCost": 180.00,
+      "currentPrice": 245.00,
+      "marketValue": 122500.00,
+      "weight": 14.4,
+      "gainLoss": 32500.00,
+      "gainLossPercent": 36.11,
+      "sector": "Consumer Discretionary"
+    },
+    {
+      "symbol": "META",
+      "name": "Meta Platforms Inc.",
+      "shares": 300,
+      "avgCost": 320.00,
+      "currentPrice": 450.00,
+      "marketValue": 135000.00,
+      "weight": 15.9,
+      "gainLoss": 39000.00,
+      "gainLossPercent": 40.63,
+      "sector": "Communication Services"
+    },
+    {
+      "symbol": "AMZN",
+      "name": "Amazon.com Inc.",
+      "shares": 700,
+      "avgCost": 140.00,
+      "currentPrice": 175.00,
+      "marketValue": 122500.00,
+      "weight": 14.4,
+      "gainLoss": 24500.00,
+      "gainLossPercent": 25.00,
+      "sector": "Consumer Discretionary"
+    },
+    {
+      "symbol": "GOOGL",
+      "name": "Alphabet Inc.",
+      "shares": 800,
+      "avgCost": 110.00,
+      "currentPrice": 145.00,
+      "marketValue": 116000.00,
+      "weight": 13.6,
+      "gainLoss": 28000.00,
+      "gainLossPercent": 31.82,
+      "sector": "Communication Services"
+    },
+    {
+      "symbol": "SHOP",
+      "name": "Shopify Inc.",
+      "shares": 1000,
+      "avgCost": 65.00,
+      "currentPrice": 78.00,
+      "marketValue": 78000.00,
+      "weight": 9.2,
+      "gainLoss": 13000.00,
+      "gainLossPercent": 20.00,
+      "sector": "Technology"
+    },
+    {
+      "symbol": "SQ",
+      "name": "Block Inc.",
+      "shares": 900,
+      "avgCost": 70.00,
+      "currentPrice": 85.00,
+      "marketValue": 76500.00,
+      "weight": 9.0,
+      "gainLoss": 13500.00,
+      "gainLossPercent": 21.43,
+      "sector": "Financials"
+    }
+  ],
+  "sectorAllocation": [
+    { "sector": "Technology", "weight": 29.8, "value": 253000.00 },
+    { "sector": "Consumer Discretionary", "weight": 28.8, "value": 245000.00 },
+    { "sector": "Communication Services", "weight": 29.5, "value": 251000.00 },
+    { "sector": "Financials", "weight": 9.0, "value": 76500.00 },
+    { "sector": "Cash", "weight": 2.9, "value": 25000.00 }
+  ],
+  "riskMetrics": {
+    "beta": 1.35,
+    "alpha": 5.2,
+    "sharpeRatio": 1.82,
+    "volatility": 22.8,
+    "maxDrawdown": -15.3,
+    "var95": -6.2
+  },
+  "updatedAt": "2026-02-13T10:00:00Z"
+}

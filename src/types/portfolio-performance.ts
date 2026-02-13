@@ -1,25 +1,24 @@
 export interface PortfolioPerformanceData {
-  ticker: string;
-  security: string;
-  costBasis: number;
-  currentPrice: number;
+  symbol: string;
+  security_name: string;
+  cost_basis: number;
   shares: number;
-  portValue: number;
-  portPct: number;
-  dailyChangePct: number;
-  ytdPct: number;
-  yoyPct: number;
-  portGainPct: number;
-  pctBelow52wkHigh: number;
-  chanRangePct: number;
-  week52High: number;
-  week52Low: number;
+  current_price: number;
+  daily_change_pct: number;
+  ytd_pct: number;
+  yoy_pct: number;
+  portfolio_gain_pct: number;
+  pct_below_52w_high: number;
+  channel_range_52w: number;
+  portfolio_pct: number;
   sector: string;
   industry: string;
 }
 
 export interface PortfolioPerformanceResponse {
+  success: boolean;
   data: PortfolioPerformanceData[];
-  lastUpdated: string;
-  source: string;
+  total_positions: number;
+  total_value: number;
+  timestamp: string;
 }

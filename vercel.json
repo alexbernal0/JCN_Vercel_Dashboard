@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "api/portfolio/performance.py": {
+      "runtime": "python3.12",
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "MOTHERDUCK_TOKEN": "@motherduck_token"
+  }
+}

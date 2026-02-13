@@ -39,7 +39,7 @@ export function PortfolioPerformanceDetails({ positions }: PortfolioPerformanceD
 
       const result = await response.json();
       setData(result.data);
-      setLastUpdated(result.lastUpdated);
+      setLastUpdated(result.timestamp);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -181,35 +181,35 @@ export function PortfolioPerformanceDetails({ positions }: PortfolioPerformanceD
             </TableHeader>
             <TableBody>
               {data.map((row) => (
-                <TableRow key={row.ticker}>
-                  <TableCell className="font-medium">{row.security}</TableCell>
-                  <TableCell>{row.ticker}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(row.costBasis)}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(row.currentPrice)}</TableCell>
+                <TableRow key={row.symbol}>
+                  <TableCell className="font-medium">{row.security_name}</TableCell>
+                  <TableCell>{row.symbol}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(row.cost_basis)}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(row.current_price)}</TableCell>
                   <TableCell
                     className="text-right font-medium"
                     style={{
-                      backgroundColor: getPortfolioBgOpacity(row.portPct),
+                      backgroundColor: getPortfolioBgOpacity(row.portfolio_pct),
                     }}
                   >
-                    {formatPercent(row.portPct)}
+                    {formatPercent(row.portfolio_pct)}
                   </TableCell>
                   <TableCell
-                    className={`text-right font-medium ${getPercentColor(row.dailyChangePct)} ${getPercentBgColor(row.dailyChangePct)}`}
+                    className={`text-right font-medium ${getPercentColor(row.daily_change_pct)} ${getPercentBgColor(row.daily_change_pct)}`}
                   >
-                    {formatPercent(row.dailyChangePct)}
+                    {formatPercent(row.daily_change_pct)}
                   </TableCell>
-                  <TableCell className={`text-right ${getPercentColor(row.ytdPct)}`}>
-                    {formatPercent(row.ytdPct)}
+                  <TableCell className={`text-right ${getPercentColor(row.ytd_pct)}`}>
+                    {formatPercent(row.ytd_pct)}
                   </TableCell>
-                  <TableCell className={`text-right ${getPercentColor(row.yoyPct)}`}>
-                    {formatPercent(row.yoyPct)}
+                  <TableCell className={`text-right ${getPercentColor(row.yoy_pct)}`}>
+                    {formatPercent(row.yoy_pct)}
                   </TableCell>
-                  <TableCell className={`text-right font-medium ${getPercentColor(row.portGainPct)}`}>
-                    {formatPercent(row.portGainPct)}
+                  <TableCell className={`text-right font-medium ${getPercentColor(row.portfolio_gain_pct)}`}>
+                    {formatPercent(row.portfolio_gain_pct)}
                   </TableCell>
-                  <TableCell className="text-right">{formatPercent(row.pctBelow52wkHigh)}</TableCell>
-                  <TableCell className="text-right">{formatPercent(row.chanRangePct)}</TableCell>
+                  <TableCell className="text-right">{formatPercent(row.pct_below_52w_high)}</TableCell>
+                  <TableCell className="text-right">{formatPercent(row.channel_range_52w)}</TableCell>
                   <TableCell>{row.sector}</TableCell>
                   <TableCell>{row.industry}</TableCell>
                 </TableRow>

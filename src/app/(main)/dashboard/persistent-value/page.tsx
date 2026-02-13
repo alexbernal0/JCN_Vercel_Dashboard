@@ -1,6 +1,4 @@
-import { Construction } from "lucide-react";
-
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PortfolioInput } from "@/components/portfolio/portfolio-input";
 
 export default function PersistentValuePage() {
   return (
@@ -10,23 +8,13 @@ export default function PersistentValuePage() {
         <p className="text-muted-foreground mt-2">Value-focused investment strategy with long-term growth potential</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <Construction className="h-12 w-12 text-muted-foreground mb-4" />
-          <CardTitle>Under Construction</CardTitle>
-          <CardDescription>This page is currently being built. Check back soon!</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">The Persistent Value portfolio page will include:</p>
-          <ul className="list-disc list-inside mt-4 space-y-2 text-sm text-muted-foreground">
-            <li>Portfolio performance metrics and charts</li>
-            <li>Current holdings and allocations</li>
-            <li>Historical performance analysis</li>
-            <li>Risk metrics and volatility analysis</li>
-            <li>Sector and asset class breakdown</li>
-          </ul>
-        </CardContent>
-      </Card>
+      <PortfolioInput />
+
+      <div className="mt-8 p-8 border rounded-lg bg-muted/50">
+        <p className="text-center text-muted-foreground">
+          Additional components will be added here as we build them out.
+        </p>
+      </div>
     </div>
   );
 }

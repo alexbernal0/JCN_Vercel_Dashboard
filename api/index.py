@@ -446,6 +446,5 @@ async def hello_world():
     return {"message": "Hello from FastAPI!", "framework": "FastAPI", "version": "2.0.0"}
 
 
-# Export for Vercel using Mangum (ASGI adapter)
-from mangum import Mangum
-handler = Mangum(app, lifespan="off")
+# Export for Vercel (modern Python runtime supports ASGI natively)
+# No Mangum needed - Vercel automatically detects and wraps the FastAPI app

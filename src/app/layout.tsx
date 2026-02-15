@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { ThemeProvider } from "next-themes"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import { siteConfig } from "./siteConfig"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -9,21 +10,18 @@ const inter = Inter({
   variable: "--font-inter",
 })
 
-import { Sidebar } from "@/components/ui/navigation/sidebar"
-import { siteConfig } from "./siteConfig"
-
 export const metadata: Metadata = {
-  metadataBase: new URL("https://yoururl.com"),
+  metadataBase: new URL("https://jcn-tremor.vercel.app"),
   title: siteConfig.name,
   description: siteConfig.description,
-  keywords: [],
+  keywords: ["stock scanner", "financial dashboard", "portfolio tracker"],
   authors: [
     {
-      name: "yourname",
-      url: "",
+      name: "JCN Financial",
+      url: "https://jcn-tremor.vercel.app",
     },
   ],
-  creator: "yourname",
+  creator: "JCN Financial",
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -31,11 +29,6 @@ export const metadata: Metadata = {
     title: siteConfig.name,
     description: siteConfig.description,
     siteName: siteConfig.name,
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Tremor OSS Dashboard",
-    creator: "@tremorlabs",
   },
   icons: {
     icon: "/favicon.ico",
@@ -53,12 +46,9 @@ export default function RootLayout({
         className={`${inter.className} overflow-y-scroll scroll-auto antialiased selection:bg-indigo-100 selection:text-indigo-700 dark:bg-gray-950`}
         suppressHydrationWarning
       >
-        <div className="mx-auto max-w-screen-2xl">
-          <ThemeProvider defaultTheme="system" attribute="class">
-            <Sidebar />
-            <main className="lg:pl-72">{children}</main>
-          </ThemeProvider>
-        </div>
+        <ThemeProvider defaultTheme="system" attribute="class">
+          <main className="min-h-screen">{children}</main>
+        </ThemeProvider>
       </body>
     </html>
   )

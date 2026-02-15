@@ -446,5 +446,28 @@ async def hello_world():
     return {"message": "Hello from FastAPI!", "framework": "FastAPI", "version": "2.0.0"}
 
 
+@app.get("/api/db-test")
+async def test_motherduck_connection():
+    """Test MotherDuck database connection."""
+    try:
+        conn = get_motherduck_connection()
+        # Simple test query
+        result = conn.execute("SELECT 'MotherDuck Connected!' as message, current_timestamp as timestamp").fetchone()
+        conn.close()
+        return {
+            "status": "success",
+            "message": result[0],
+            "timestamp": str(result[1]),
+            "motherduck_token_set": bool(os.environ.get('MOTHERDUCK_TOKEN'))
+        }
+    except Exception as e:
+        logger.error(f"MotherDuck connection test failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "motherduck_token_set": bool(os.environ.get('MOTHERDUCK_TOKEN'))
+        }
+
+
 # Export for Vercel (modern Python runtime supports ASGI natively)
 # No Mangum needed - Vercel automatically detects and wraps the FastAPI app

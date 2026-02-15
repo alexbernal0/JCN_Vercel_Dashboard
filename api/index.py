@@ -378,7 +378,7 @@ def process_single_holding(holding: Holding) -> Optional[Dict[str, Any]]:
         return None
 
 
-@app.post("/portfolio/performance", response_model=PortfolioResponse)
+@app.post("/api/portfolio/performance", response_model=PortfolioResponse)
 async def portfolio_performance(request: PortfolioRequest):
     """
     Portfolio performance endpoint.
@@ -430,7 +430,7 @@ async def portfolio_performance(request: PortfolioRequest):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/api/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
     return HealthResponse(
@@ -440,7 +440,7 @@ async def health_check():
     )
 
 
-@app.get("/python")
+@app.get("/api/python")
 async def hello_world():
     """Test endpoint from template."""
     return {"message": "Hello from FastAPI!", "framework": "FastAPI", "version": "2.0.0"}

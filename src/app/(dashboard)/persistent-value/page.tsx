@@ -1,9 +1,92 @@
-'use client'
+"use client";
 
+import { useState, useEffect } from 'react'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
+import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
+
+// Default portfolio holdings
+const DEFAULT_HOLDINGS = [
+  { symbol: 'SPMO', costBasis: 97.40, shares: 14301 },
+  { symbol: 'ASML', costBasis: 660.32, shares: 1042 },
+  { symbol: 'MNST', costBasis: 50.00, shares: 8234 },
+  { symbol: 'MSCI', costBasis: 595.23, shares: 2016 },
+  { symbol: 'COST', costBasis: 655.21, shares: 798 },
+  { symbol: 'AVGO', costBasis: 138.00, shares: 6088 },
+  { symbol: 'MA', costBasis: 418.76, shares: 1389 },
+  { symbol: 'FICO', costBasis: 1850.00, shares: 778 },
+  { symbol: 'SPGI', costBasis: 427.93, shares: 1554 },
+  { symbol: 'IDXX', costBasis: 378.01, shares: 1570 },
+  { symbol: 'ISRG', costBasis: 322.50, shares: 2769 },
+  { symbol: 'V', costBasis: 276.65, shares: 2338 },
+  { symbol: 'CAT', costBasis: 287.70, shares: 1356 },
+  { symbol: 'ORLY', costBasis: 91.00, shares: 4696 },
+  { symbol: 'HEI', costBasis: 172.00, shares: 1804 },
+  { symbol: 'NFLX', costBasis: 80.82, shares: 10083 },
+  { symbol: 'WM', costBasis: 177.77, shares: 5000 },
+  { symbol: 'TSLA', costBasis: 270.00, shares: 5022 },
+  { symbol: 'AAPL', costBasis: 181.40, shares: 2865 },
+  { symbol: 'LRCX', costBasis: 73.24, shares: 18667 },
+  { symbol: 'TSM', costBasis: 99.61, shares: 5850 },
+];
 
 export default function PersistentValuePage() {
+  const [portfolioData, setPortfolioData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string>('--');
+  const [currentHoldings, setCurrentHoldings] = useState(DEFAULT_HOLDINGS);
+
+  // Fetch portfolio performance data
+  const fetchPortfolioData = async (forceRefresh = false) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/portfolio/performance?force_refresh=${forceRefresh}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          holdings: currentHoldings.map(h => ({
+            symbol: h.symbol,
+            cost_basis: h.costBasis,
+            shares: h.shares
+          }))
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      setPortfolioData(result.data);
+      setLastUpdated(new Date(result.last_updated).toLocaleString());
+    } catch (error) {
+      console.error('Error fetching portfolio data:', error);
+      // TODO: Show error toast
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    fetchPortfolioData(false);
+  }, []);
+
+  // Handle refresh button
+  const handleRefresh = () => {
+    fetchPortfolioData(true);
+  };
+
+  // Handle portfolio save
+  const handlePortfolioSave = (holdings: any[]) => {
+    console.log('Portfolio saved:', holdings);
+    setCurrentHoldings(holdings);
+    // Fetch new data with updated holdings
+    fetchPortfolioData(false);
+  };
+
   return (
     <div className="min-h-screen bg-white p-8 dark:bg-gray-950">
       <div className="mx-auto max-w-7xl">
@@ -24,13 +107,28 @@ export default function PersistentValuePage() {
 
           {/* Refresh Button */}
           <div className="flex flex-col gap-2">
-            <button className="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
-              🔄 Refresh Data
+            <button 
+              onClick={handleRefresh}
+              disabled={isLoading}
+              className="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 disabled:bg-gray-400 dark:bg-blue-500 dark:hover:bg-blue-600"
+            >
+              {isLoading ? '⏳ Loading...' : '🔄 Refresh Data'}
             </button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Last updated: --
+              Last updated: {lastUpdated}
             </p>
           </div>
+        </div>
+
+        <hr className="my-8 border-gray-200 dark:border-gray-800" />
+
+        {/* Portfolio Performance Details Table - NEW */}
+        <div className="mb-8">
+          <PortfolioPerformanceTable 
+            data={portfolioData}
+            isLoading={isLoading}
+            onRefresh={handleRefresh}
+          />
         </div>
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
@@ -186,33 +284,8 @@ export default function PersistentValuePage() {
 
       {/* Portfolio Input - Fixed at bottom */}
       <PortfolioInput 
-        initialHoldings={[
-          { symbol: 'SPMO', costBasis: 97.40, shares: 14301 },
-          { symbol: 'ASML', costBasis: 660.32, shares: 1042 },
-          { symbol: 'MNST', costBasis: 50.00, shares: 8234 },
-          { symbol: 'MSCI', costBasis: 595.23, shares: 2016 },
-          { symbol: 'COST', costBasis: 655.21, shares: 798 },
-          { symbol: 'AVGO', costBasis: 138.00, shares: 6088 },
-          { symbol: 'MA', costBasis: 418.76, shares: 1389 },
-          { symbol: 'FICO', costBasis: 1850.00, shares: 778 },
-          { symbol: 'SPGI', costBasis: 427.93, shares: 1554 },
-          { symbol: 'IDXX', costBasis: 378.01, shares: 1570 },
-          { symbol: 'ISRG', costBasis: 322.50, shares: 2769 },
-          { symbol: 'V', costBasis: 276.65, shares: 2338 },
-          { symbol: 'CAT', costBasis: 287.70, shares: 1356 },
-          { symbol: 'ORLY', costBasis: 91.00, shares: 4696 },
-          { symbol: 'HEI', costBasis: 172.00, shares: 1804 },
-          { symbol: 'NFLX', costBasis: 80.82, shares: 10083 },
-          { symbol: 'WM', costBasis: 177.77, shares: 5000 },
-          { symbol: 'TSLA', costBasis: 270.00, shares: 5022 },
-          { symbol: 'AAPL', costBasis: 181.40, shares: 2865 },
-          { symbol: 'LRCX', costBasis: 73.24, shares: 18667 },
-          { symbol: 'TSM', costBasis: 99.61, shares: 5850 },
-        ]}
-        onSave={(holdings) => {
-          console.log('Portfolio saved:', holdings);
-          // TODO: Save to backend API
-        }}
+        initialHoldings={DEFAULT_HOLDINGS}
+        onSave={handlePortfolioSave}
       />
     </div>
   )

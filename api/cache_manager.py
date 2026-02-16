@@ -130,14 +130,23 @@ class CacheManager:
         """
         import duckdb
         
-        # Check if already loaded today
+        # Check if already loaded today AND all tickers are in cache
         with self._lock:
             if self.motherduck_data:
                 cache_date = self.motherduck_data.get('cache_date')
                 today = datetime.now().strftime('%Y-%m-%d')
                 if cache_date == today:
-                    logger.info("MotherDuck data already loaded for today, using cache")
-                    return self.motherduck_data['data']
+                    # Check if ALL requested tickers are in cache
+                    cached_data = self.motherduck_data.get('data', {})
+                    missing_tickers = [t for t in tickers if f"{t}.US" not in cached_data]
+                    
+                    if not missing_tickers:
+                        logger.info(f"MotherDuck data already loaded for today with all {len(tickers)} tickers, using cache")
+                        return cached_data
+                    else:
+                        logger.info(f"Cache from today but missing {len(missing_tickers)} tickers: {missing_tickers[:5]}...")
+                        # Fetch ALL tickers (including cached ones) to ensure consistency
+                        pass  # Continue to fetch
         
         logger.info(f"Fetching fresh MotherDuck data for {len(tickers)} tickers (once per day)...")
         

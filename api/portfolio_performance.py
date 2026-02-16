@@ -126,7 +126,7 @@ def calculate_portfolio_performance(
         
         # Add to portfolio data
         portfolio_data.append({
-            'security': ticker_data.get('industry', ticker),  # Use industry as placeholder for company name
+            'security': ticker_data.get('industry') or ticker,  # Use industry as placeholder for company name
             'ticker': ticker,
             'cost_basis': cost_basis,
             'current_price': current_price,
@@ -137,8 +137,8 @@ def calculate_portfolio_performance(
             'port_gain_pct': port_gain_pct,
             'pct_below_52wk_high': pct_below_52wk_high,
             'chan_range_pct': chan_range_pct,
-            'sector': ticker_data.get('sector', 'N/A'),
-            'industry': ticker_data.get('industry', 'N/A'),
+            'sector': ticker_data.get('sector') or 'N/A',
+            'industry': ticker_data.get('industry') or 'N/A',
             'position_value': position_value
         })
     

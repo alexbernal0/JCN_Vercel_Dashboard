@@ -86,7 +86,7 @@ class CacheManager:
     
     def update_current_prices(self, tickers: List[str], force: bool = False) -> Dict[str, float]:
         """
-        Update current prices from yfinance
+        Update current prices from Alpha Vantage API
         
         Args:
             tickers: List of ticker symbols
@@ -95,8 +95,12 @@ class CacheManager:
         Returns:
             Dict of ticker -> price
         """
-        import yfinance as yf
+        import requests
         from concurrent.futures import ThreadPoolExecutor
+        
+        # Alpha Vantage API configuration
+        ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'KAGC2VEED1JTAETN')
+        ALPHA_VANTAGE_BASE_URL = 'https://www.alphavantage.co/query'
         
         now = time.time()
         
@@ -114,32 +118,59 @@ class CacheManager:
             
             tickers = needs_refresh
         
-        logger.info(f"Refreshing current prices for {len(tickers)} tickers...")
+        logger.info(f"Refreshing current prices for {len(tickers)} tickers using Alpha Vantage...")
         
         def fetch_price(ticker: str) -> Optional[tuple]:
-            """Fetch current price for a single ticker"""
+            """Fetch current price for a single ticker from Alpha Vantage"""
             try:
-                logger.info(f"Fetching price for {ticker}...")
-                stock = yf.Ticker(ticker)
+                logger.info(f"Fetching price for {ticker} from Alpha Vantage...")
                 
-                # Use simpler approach - just get latest price
-                # This is more reliable in serverless environments
-                hist = stock.history(period="1d")
+                params = {
+                    'function': 'GLOBAL_QUOTE',
+                    'symbol': ticker,
+                    'apikey': ALPHA_VANTAGE_API_KEY
+                }
                 
-                if not hist.empty:
-                    price = float(hist['Close'].iloc[-1])
+                response = requests.get(ALPHA_VANTAGE_BASE_URL, params=params, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Check for errors
+                if 'Error Message' in data:
+                    logger.error(f"{ticker}: Alpha Vantage error - {data['Error Message']}")
+                    return None
+                
+                if 'Note' in data:
+                    logger.warning(f"{ticker}: Rate limit - {data['Note']}")
+                    return None
+                
+                if 'Global Quote' not in data or not data['Global Quote']:
+                    logger.warning(f"{ticker}: No quote data available")
+                    return None
+                
+                quote = data['Global Quote']
+                price = float(quote.get('05. price', 0))
+                
+                if price > 0:
                     logger.info(f"{ticker}: ${price:.2f}")
                     return (ticker, price)
                 else:
-                    logger.warning(f"{ticker}: No price data available")
+                    logger.warning(f"{ticker}: Invalid price (${price})")
                     return None
                     
+            except requests.exceptions.Timeout:
+                logger.error(f"{ticker}: Request timeout")
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.error(f"{ticker}: Request error - {str(e)}")
+                return None
             except Exception as e:
-                logger.error(f"{ticker}: Error fetching price - {type(e).__name__}: {str(e)}")
+                logger.error(f"{ticker}: Unexpected error - {type(e).__name__}: {str(e)}")
                 return None
         
-        # Fetch all prices in parallel
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        # Fetch all prices in parallel (max 5 workers to respect rate limits)
+        with ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(fetch_price, tickers))
         
         # Update cache
@@ -158,7 +189,7 @@ class CacheManager:
             # Save to disk
             self._save_current_prices()
         
-        logger.info(f"Updated {len(updated_prices)} current prices")
+        logger.info(f"Updated {len(updated_prices)}/{len(tickers)} current prices from Alpha Vantage")
         return updated_prices
     
     def needs_price_refresh(self, tickers: List[str]) -> bool:

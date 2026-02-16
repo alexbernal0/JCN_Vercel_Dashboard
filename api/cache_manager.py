@@ -119,23 +119,23 @@ class CacheManager:
         def fetch_price(ticker: str) -> Optional[tuple]:
             """Fetch current price for a single ticker"""
             try:
+                logger.info(f"Fetching price for {ticker}...")
                 stock = yf.Ticker(ticker)
-                # Try 1-minute intraday data first
-                hist = stock.history(period="1d", interval="1m")
+                
+                # Use simpler approach - just get latest price
+                # This is more reliable in serverless environments
+                hist = stock.history(period="1d")
+                
                 if not hist.empty:
                     price = float(hist['Close'].iloc[-1])
+                    logger.info(f"{ticker}: ${price:.2f}")
+                    return (ticker, price)
                 else:
-                    # Fallback to daily data
-                    hist = stock.history(period="5d")
-                    if not hist.empty:
-                        price = float(hist['Close'].iloc[-1])
-                    else:
-                        logger.warning(f"No price data for {ticker}")
-                        return None
-                
-                return (ticker, price)
+                    logger.warning(f"{ticker}: No price data available")
+                    return None
+                    
             except Exception as e:
-                logger.error(f"Error fetching price for {ticker}: {e}")
+                logger.error(f"{ticker}: Error fetching price - {type(e).__name__}: {str(e)}")
                 return None
         
         # Fetch all prices in parallel

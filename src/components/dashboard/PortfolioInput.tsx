@@ -98,7 +98,7 @@ export function PortfolioInput({ initialHoldings = [], onSave }: PortfolioInputP
         </p>
 
         {/* Table */}
-        <div className="max-h-64 overflow-y-auto border rounded-lg">
+        <div className="border rounded-lg">
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
               <tr>
@@ -179,6 +179,11 @@ export function PortfolioInput({ initialHoldings = [], onSave }: PortfolioInputP
             ⚠️ Maximum 30 positions reached
           </p>
         )}
+        
+        {/* Footer white space for future links */}
+        <div className="mt-8 mb-4">
+          {/* Reserved for footer links */}
+        </div>
       </div>
     </div>
   );

@@ -113,4 +113,6 @@ async def get_portfolio_performance(
 
 
 # Vercel serverless function handler
-handler = app
+# Mangum wraps FastAPI for AWS Lambda/Vercel compatibility
+from mangum import Mangum
+handler = Mangum(app, lifespan="off")

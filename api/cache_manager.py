@@ -270,11 +270,13 @@ class CacheManager:
             raise ValueError("MOTHERDUCK_TOKEN not found in environment")
         
         # Connect to MotherDuck with explicit config for serverless environment
+        # Set home directory to /tmp (writable in Vercel serverless)
         conn = duckdb.connect(
             database='md:',
             config={
                 'motherduck_token': motherduck_token,
-                'custom_user_agent': 'jcn_dashboard'
+                'custom_user_agent': 'jcn_dashboard',
+                'home_directory': '/tmp'
             }
         )
         

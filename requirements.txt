@@ -9,4 +9,3 @@ requests==2.32.3
 vercel==0.3.2
 vercel-sandbox==0.0.2
 vercel-sdk==0.0.8
-mangum>=0.17.0

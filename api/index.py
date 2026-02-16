@@ -113,6 +113,5 @@ async def get_portfolio_performance(
 
 
 # Vercel serverless function handler
-# Mangum wraps FastAPI for AWS Lambda/Vercel compatibility
-from mangum import Mangum
-handler = Mangum(app, lifespan="off")
+# Vercel natively supports ASGI - just export the FastAPI app directly
+# NO Mangum or adapters needed!

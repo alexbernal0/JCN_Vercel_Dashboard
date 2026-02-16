@@ -1,208 +1,47 @@
 """
-Cache Manager for JCN Dashboard
-Handles persistent caching of current prices and MotherDuck data
+Cache Manager for Portfolio Performance API
+
+ALL DATA FROM MOTHERDUCK - No external APIs!
+- Current prices: Latest EOD close from MotherDuck
+- Historical data: From MotherDuck PROD_EOD_survivorship table
+- Caching: 24hr for all data (refreshes once per day)
 """
 
-# CRITICAL: Set HOME directory for DuckDB in serverless environment
-# DuckDB needs a writable home directory for extensions and config
-# Must be set BEFORE importing duckdb
 import os
-os.environ['HOME'] = '/tmp'
-
 import json
 import time
-import threading
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional
 import logging
+from pathlib import Path
+from datetime import datetime
+from threading import Lock
+from typing import Dict, List, Optional
 
+# Set HOME to /tmp for DuckDB in serverless environment
+os.environ['HOME'] = '/tmp'
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Cache directory
-CACHE_DIR = Path("/tmp/jcn_cache")
-CURRENT_PRICES_FILE = CACHE_DIR / "current_prices.json"
-MOTHERDUCK_DATA_FILE = CACHE_DIR / "motherduck_data.json"
+# Cache configuration
+CACHE_DIR = Path('/tmp/jcn_cache')
+CACHE_DIR.mkdir(exist_ok=True)
+
+MOTHERDUCK_DATA_FILE = CACHE_DIR / 'motherduck_data.json'
 
 # Cache TTLs
-CURRENT_PRICE_TTL = 30 * 60  # 30 minutes
-MOTHERDUCK_TTL = 24 * 60 * 60  # 24 hours
+MOTHERDUCK_TTL = 24 * 60 * 60  # 24 hours (refreshes once per day)
 
 
 class CacheManager:
-    """
-    Manages two-tier caching:
-    1. Current prices (yfinance) - 30 min TTL, auto-refresh
-    2. MotherDuck data (historical) - 24 hour TTL, load once per day
-    """
+    """Manages caching for portfolio performance data - ALL FROM MOTHERDUCK"""
     
     def __init__(self):
-        """Initialize cache manager and create cache directory"""
-        CACHE_DIR.mkdir(exist_ok=True)
-        self.current_prices: Dict = self._load_current_prices()
-        self.motherduck_data: Optional[Dict] = self._load_motherduck_data()
-        self._lock = threading.Lock()
-        logger.info("CacheManager initialized")
+        self._lock = Lock()
+        self.motherduck_data = self._load_motherduck_data()
     
     # ========================================================================
-    # CURRENT PRICES (yfinance) - Auto-refresh every 30 min
-    # ========================================================================
-    
-    def _load_current_prices(self) -> Dict:
-        """Load current prices from persistent cache"""
-        try:
-            if CURRENT_PRICES_FILE.exists():
-                with open(CURRENT_PRICES_FILE, 'r') as f:
-                    data = json.load(f)
-                    logger.info(f"Loaded {len(data)} current prices from cache")
-                    return data
-        except Exception as e:
-            logger.error(f"Error loading current prices cache: {e}")
-        return {}
-    
-    def _save_current_prices(self):
-        """Save current prices to persistent cache"""
-        try:
-            with open(CURRENT_PRICES_FILE, 'w') as f:
-                json.dump(self.current_prices, f, indent=2)
-            logger.info(f"Saved {len(self.current_prices)} current prices to cache")
-        except Exception as e:
-            logger.error(f"Error saving current prices cache: {e}")
-    
-    def get_current_price(self, ticker: str) -> Optional[Dict]:
-        """
-        Get current price from cache
-        
-        Returns:
-            Dict with 'price', 'timestamp', 'last_updated' or None
-        """
-        with self._lock:
-            return self.current_prices.get(ticker)
-    
-    def get_all_current_prices(self) -> Dict:
-        """Get all current prices from cache"""
-        with self._lock:
-            return self.current_prices.copy()
-    
-    def update_current_prices(self, tickers: List[str], force: bool = False) -> Dict[str, float]:
-        """
-        Update current prices from Alpha Vantage API
-        
-        Args:
-            tickers: List of ticker symbols
-            force: If True, force refresh even if cache is fresh
-        
-        Returns:
-            Dict of ticker -> price
-        """
-        import requests
-        from concurrent.futures import ThreadPoolExecutor
-        
-        # Alpha Vantage API configuration
-        ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'KAGC2VEED1JTAETN')
-        ALPHA_VANTAGE_BASE_URL = 'https://www.alphavantage.co/query'
-        
-        now = time.time()
-        
-        # Check if refresh needed
-        if not force:
-            needs_refresh = []
-            for ticker in tickers:
-                cached = self.current_prices.get(ticker)
-                if not cached or (now - cached['last_updated']) > CURRENT_PRICE_TTL:
-                    needs_refresh.append(ticker)
-            
-            if not needs_refresh:
-                logger.info("All current prices are fresh, skipping refresh")
-                return {t: self.current_prices[t]['price'] for t in tickers if t in self.current_prices}
-            
-            tickers = needs_refresh
-        
-        logger.info(f"Refreshing current prices for {len(tickers)} tickers using Alpha Vantage...")
-        
-        def fetch_price(ticker: str) -> Optional[tuple]:
-            """Fetch current price for a single ticker from Alpha Vantage"""
-            try:
-                logger.info(f"Fetching price for {ticker} from Alpha Vantage...")
-                
-                params = {
-                    'function': 'GLOBAL_QUOTE',
-                    'symbol': ticker,
-                    'apikey': ALPHA_VANTAGE_API_KEY
-                }
-                
-                response = requests.get(ALPHA_VANTAGE_BASE_URL, params=params, timeout=10)
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                # Check for errors
-                if 'Error Message' in data:
-                    logger.error(f"{ticker}: Alpha Vantage error - {data['Error Message']}")
-                    return None
-                
-                if 'Note' in data:
-                    logger.warning(f"{ticker}: Rate limit - {data['Note']}")
-                    return None
-                
-                if 'Global Quote' not in data or not data['Global Quote']:
-                    logger.warning(f"{ticker}: No quote data available")
-                    return None
-                
-                quote = data['Global Quote']
-                price = float(quote.get('05. price', 0))
-                
-                if price > 0:
-                    logger.info(f"{ticker}: ${price:.2f}")
-                    return (ticker, price)
-                else:
-                    logger.warning(f"{ticker}: Invalid price (${price})")
-                    return None
-                    
-            except requests.exceptions.Timeout:
-                logger.error(f"{ticker}: Request timeout")
-                return None
-            except requests.exceptions.RequestException as e:
-                logger.error(f"{ticker}: Request error - {str(e)}")
-                return None
-            except Exception as e:
-                logger.error(f"{ticker}: Unexpected error - {type(e).__name__}: {str(e)}")
-                return None
-        
-        # Fetch all prices in parallel (max 5 workers to respect rate limits)
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            results = list(executor.map(fetch_price, tickers))
-        
-        # Update cache
-        updated_prices = {}
-        with self._lock:
-            for result in results:
-                if result:
-                    ticker, price = result
-                    self.current_prices[ticker] = {
-                        'price': price,
-                        'timestamp': datetime.now().isoformat(),
-                        'last_updated': now
-                    }
-                    updated_prices[ticker] = price
-            
-            # Save to disk
-            self._save_current_prices()
-        
-        logger.info(f"Updated {len(updated_prices)}/{len(tickers)} current prices from Alpha Vantage")
-        return updated_prices
-    
-    def needs_price_refresh(self, tickers: List[str]) -> bool:
-        """Check if any ticker needs price refresh"""
-        now = time.time()
-        for ticker in tickers:
-            cached = self.current_prices.get(ticker)
-            if not cached or (now - cached['last_updated']) > CURRENT_PRICE_TTL:
-                return True
-        return False
-    
-    # ========================================================================
-    # MOTHERDUCK DATA - Load once per day, NEVER manual refresh
+    # MOTHERDUCK DATA - Load once per day, includes current prices!
     # ========================================================================
     
     def _load_motherduck_data(self) -> Optional[Dict]:
@@ -253,7 +92,7 @@ class CacheManager:
             ticker: Ticker symbol (without .US suffix)
         
         Returns:
-            Dict with historical data or None
+            Dict with historical data AND current price (latest_eod_close)
         """
         with self._lock:
             if self.motherduck_data:
@@ -269,19 +108,25 @@ class CacheManager:
     
     def fetch_motherduck_data(self, tickers: List[str]) -> Dict:
         """
-        Fetch historical data from MotherDuck (ONCE per day)
+        Fetch ALL data from MotherDuck (ONCE per day)
         
-        This is called ONLY:
+        This includes:
+        - Current price (latest EOD close)
+        - Previous close
+        - YTD start price
+        - Year ago price
+        - 52-week high/low
+        - Sector/Industry
+        
+        Called ONLY:
         1. On first load of the day
         2. When cache is expired (different day)
-        
-        NEVER called by manual refresh button!
         
         Args:
             tickers: List of ticker symbols (without .US suffix)
         
         Returns:
-            Dict of ticker.US -> historical data
+            Dict of ticker.US -> all data including current price
         """
         import duckdb
         
@@ -358,7 +203,7 @@ class CacheManager:
                     MIN(low) as week_52_low
                 FROM PROD_EODHD.main.PROD_EOD_survivorship
                 WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date >= CURRENT_DATE - INTERVAL '1 year'
+                AND date >= CURRENT_DATE - INTERVAL '52 weeks'
                 GROUP BY symbol
             )
             SELECT 
@@ -378,40 +223,74 @@ class CacheManager:
             LEFT JOIN week_52_stats w ON l.symbol = w.symbol
             """
             
-            result = conn.execute(query).df()
+            result = conn.execute(query).fetchall()
             
-            # Convert to dictionary
+            # Build data dictionary
             data = {}
-            for _, row in result.iterrows():
-                data[row['symbol']] = {
-                    'latest_eod_close': float(row['latest_eod_close']) if row['latest_eod_close'] else None,
-                    'prev_close': float(row['prev_close']) if row['prev_close'] else None,
-                    'ytd_start_price': float(row['ytd_start_price']) if row['ytd_start_price'] else None,
-                    'year_ago_price': float(row['year_ago_price']) if row['year_ago_price'] else None,
-                    'week_52_high': float(row['week_52_high']) if row['week_52_high'] else None,
-                    'week_52_low': float(row['week_52_low']) if row['week_52_low'] else None,
-                    'sector': row['gics_sector'] if row['gics_sector'] else 'N/A',
-                    'industry': row['industry'] if row['industry'] else 'N/A'
+            for row in result:
+                symbol, latest_close, sector, industry, prev_close, ytd_start, year_ago, week_52_high, week_52_low = row
+                
+                data[symbol] = {
+                    'latest_eod_close': latest_close,  # THIS IS THE CURRENT PRICE!
+                    'prev_close': prev_close,
+                    'ytd_start_price': ytd_start,
+                    'year_ago_price': year_ago,
+                    'week_52_high': week_52_high,
+                    'week_52_low': week_52_low,
+                    'sector': sector,
+                    'industry': industry
                 }
+            
+            logger.info(f"Fetched data for {len(data)} tickers from MotherDuck")
             
             # Save to cache
             self._save_motherduck_data(data)
             
-            logger.info(f"Fetched MotherDuck data for {len(data)} tickers")
             return data
             
         finally:
             conn.close()
     
-    def is_motherduck_cache_valid(self) -> bool:
-        """Check if MotherDuck cache is valid for today"""
+    def get_current_price(self, ticker: str) -> Optional[float]:
+        """
+        Get current price for a ticker (latest EOD close from MotherDuck)
+        
+        Args:
+            ticker: Ticker symbol (without .US suffix)
+        
+        Returns:
+            Current price (latest EOD close) or None
+        """
+        md_data = self.get_motherduck_data(ticker)
+        if md_data and 'latest_eod_close' in md_data:
+            return md_data['latest_eod_close']
+        return None
+    
+    def get_cache_info(self) -> Dict:
+        """Get cache status information"""
         with self._lock:
             if self.motherduck_data:
-                cache_date = self.motherduck_data.get('cache_date')
-                today = datetime.now().strftime('%Y-%m-%d')
-                return cache_date == today
-        return False
+                return {
+                    'motherduck_cache_date': self.motherduck_data.get('cache_date'),
+                    'motherduck_loaded_at': self.motherduck_data.get('loaded_at'),
+                    'tickers_count': len(self.motherduck_data.get('data', {})),
+                    'source': 'MotherDuck (includes current prices)'
+                }
+            else:
+                return {
+                    'motherduck_cache_date': None,
+                    'motherduck_loaded_at': None,
+                    'tickers_count': 0,
+                    'source': 'MotherDuck (not loaded yet)'
+                }
 
 
 # Global cache manager instance
-cache_manager = CacheManager()
+_cache_manager = None
+
+def get_cache_manager() -> CacheManager:
+    """Get or create the global cache manager instance"""
+    global _cache_manager
+    if _cache_manager is None:
+        _cache_manager = CacheManager()
+    return _cache_manager

@@ -269,7 +269,14 @@ class CacheManager:
         if not motherduck_token:
             raise ValueError("MOTHERDUCK_TOKEN not found in environment")
         
-        conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
+        # Connect to MotherDuck with explicit config for serverless environment
+        conn = duckdb.connect(
+            database='md:',
+            config={
+                'motherduck_token': motherduck_token,
+                'custom_user_agent': 'jcn_dashboard'
+            }
+        )
         
         try:
             # Single optimized query for all stocks

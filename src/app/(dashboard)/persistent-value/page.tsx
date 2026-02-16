@@ -189,14 +189,25 @@ export default function PersistentValuePage() {
         initialHoldings={[
           { symbol: 'SPMO', costBasis: 97.40, shares: 14301 },
           { symbol: 'ASML', costBasis: 660.32, shares: 1042 },
-          { symbol: 'MNST', costBasis: 50.01, shares: 8234 },
-          { symbol: 'MSCI', costBasis: 342.94, shares: 2016 },
+          { symbol: 'MNST', costBasis: 50.00, shares: 8234 },
+          { symbol: 'MSCI', costBasis: 595.23, shares: 2016 },
           { symbol: 'COST', costBasis: 655.21, shares: 798 },
           { symbol: 'AVGO', costBasis: 138.00, shares: 6088 },
           { symbol: 'MA', costBasis: 418.76, shares: 1389 },
           { symbol: 'FICO', costBasis: 1850.00, shares: 778 },
           { symbol: 'SPGI', costBasis: 427.93, shares: 1554 },
           { symbol: 'IDXX', costBasis: 378.01, shares: 1570 },
+          { symbol: 'ISRG', costBasis: 322.50, shares: 2769 },
+          { symbol: 'V', costBasis: 276.65, shares: 2338 },
+          { symbol: 'CAT', costBasis: 287.70, shares: 1356 },
+          { symbol: 'ORLY', costBasis: 91.00, shares: 4696 },
+          { symbol: 'HEI', costBasis: 172.00, shares: 1804 },
+          { symbol: 'NFLX', costBasis: 80.82, shares: 10083 },
+          { symbol: 'WM', costBasis: 177.77, shares: 5000 },
+          { symbol: 'TSLA', costBasis: 270.00, shares: 5022 },
+          { symbol: 'AAPL', costBasis: 181.40, shares: 2865 },
+          { symbol: 'LRCX', costBasis: 73.24, shares: 18667 },
+          { symbol: 'TSM', costBasis: 99.61, shares: 5850 },
         ]}
         onSave={(holdings) => {
           console.log('Portfolio saved:', holdings);

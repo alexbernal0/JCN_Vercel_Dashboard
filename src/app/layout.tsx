@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { ThemeProvider } from "next-themes"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { siteConfig } from "./siteConfig"
@@ -43,12 +42,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.className} overflow-y-scroll scroll-auto antialiased selection:bg-indigo-100 selection:text-indigo-700 dark:bg-gray-950`}
+        className={`${inter.className} antialiased selection:bg-indigo-100 selection:text-indigo-700`}
         suppressHydrationWarning
       >
-        <ThemeProvider defaultTheme="system" attribute="class">
-          <main className="min-h-screen">{children}</main>
-        </ThemeProvider>
+        {children}
       </body>
     </html>
   )

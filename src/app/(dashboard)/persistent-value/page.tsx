@@ -1,6 +1,7 @@
 'use client'
 
 import { MetricCard } from '@/components/dashboard/MetricCard'
+import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 
 export default function PersistentValuePage() {
   return (
@@ -182,6 +183,26 @@ export default function PersistentValuePage() {
           </div>
         </div>
       </div>
+
+      {/* Portfolio Input - Fixed at bottom */}
+      <PortfolioInput 
+        initialHoldings={[
+          { symbol: 'SPMO', costBasis: 97.40, shares: 14301 },
+          { symbol: 'ASML', costBasis: 660.32, shares: 1042 },
+          { symbol: 'MNST', costBasis: 50.01, shares: 8234 },
+          { symbol: 'MSCI', costBasis: 342.94, shares: 2016 },
+          { symbol: 'COST', costBasis: 655.21, shares: 798 },
+          { symbol: 'AVGO', costBasis: 138.00, shares: 6088 },
+          { symbol: 'MA', costBasis: 418.76, shares: 1389 },
+          { symbol: 'FICO', costBasis: 1850.00, shares: 778 },
+          { symbol: 'SPGI', costBasis: 427.93, shares: 1554 },
+          { symbol: 'IDXX', costBasis: 378.01, shares: 1570 },
+        ]}
+        onSave={(holdings) => {
+          console.log('Portfolio saved:', holdings);
+          // TODO: Save to backend API
+        }}
+      />
     </div>
   )
 }

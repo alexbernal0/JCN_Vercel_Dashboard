@@ -3,8 +3,13 @@ Cache Manager for JCN Dashboard
 Handles persistent caching of current prices and MotherDuck data
 """
 
-import json
+# CRITICAL: Set HOME directory for DuckDB in serverless environment
+# DuckDB needs a writable home directory for extensions and config
+# Must be set BEFORE importing duckdb
 import os
+os.environ['HOME'] = '/tmp'
+
+import json
 import time
 import threading
 from datetime import datetime
@@ -269,16 +274,9 @@ class CacheManager:
         if not motherduck_token:
             raise ValueError("MOTHERDUCK_TOKEN not found in environment")
         
-        # Connect to MotherDuck with explicit config for serverless environment
-        # Set home directory to /tmp (writable in Vercel serverless)
-        conn = duckdb.connect(
-            database='md:',
-            config={
-                'motherduck_token': motherduck_token,
-                'custom_user_agent': 'jcn_dashboard',
-                'home_directory': '/tmp'
-            }
-        )
+        # Connect to MotherDuck
+        # HOME env var is set at module level to /tmp for serverless compatibility
+        conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
         
         try:
             # Single optimized query for all stocks

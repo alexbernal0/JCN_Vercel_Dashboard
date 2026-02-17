@@ -175,29 +175,7 @@ export default function PersistentValuePage() {
           </div>
         </div>
 
-        {/* Benchmarks Section */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            📊 Benchmarks
-          </h2>
-          <div className="grid gap-6 md:grid-cols-3">
-            <MetricCard 
-              title="Portfolio Est. Daily % Change" 
-              value="+0.00%" 
-              trend="neutral"
-            />
-            <MetricCard 
-              title="Benchmark Est. Daily % Change" 
-              value="+0.00%" 
-              trend="neutral"
-            />
-            <MetricCard 
-              title="Est. Daily Alpha" 
-              value="+0.00%" 
-              trend="neutral"
-            />
-          </div>
-        </div>
+        {/* Old Benchmarks section removed - using new Benchmarks component above */}
 
         {/* Portfolio Allocation */}
         <div className="mb-8">

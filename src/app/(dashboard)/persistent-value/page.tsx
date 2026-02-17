@@ -6,6 +6,7 @@ import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
 import Benchmarks from '@/components/dashboard/Benchmarks'
 import PortfolioAllocation from '@/components/dashboard/PortfolioAllocation'
+import StockPriceComparison from '@/components/dashboard/StockPriceComparison'
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -160,6 +161,15 @@ export default function PersistentValuePage() {
               cost_basis: h.costBasis,
               shares: h.shares
             }))}
+          />
+        </div>
+
+        <hr className="my-8 border-gray-200 dark:border-gray-800" />
+
+        {/* Stock Price Comparison Section */}
+        <div className="mb-8">
+          <StockPriceComparison 
+            symbols={currentHoldings.map(h => h.symbol)}
           />
         </div>
 

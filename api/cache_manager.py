@@ -275,6 +275,69 @@ class CacheManager:
             return md_data['latest_eod_close']
         return None
     
+    def fetch_historical_prices(self, symbols: List[str], start_date: str, end_date: str) -> Dict:
+        """
+        Fetch historical daily closing prices from MotherDuck
+        
+        Args:
+            symbols: List of ticker symbols (with .US suffix)
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+        
+        Returns:
+            Dictionary with symbol as key and list of {date, close} as value
+        """
+        import duckdb
+        
+        logger.info(f"Fetching historical prices for {len(symbols)} symbols from {start_date} to {end_date}")
+        
+        # Connect to MotherDuck
+        motherduck_token = os.getenv('MOTHERDUCK_TOKEN')
+        if not motherduck_token:
+            raise ValueError("MOTHERDUCK_TOKEN not found in environment")
+        
+        conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
+        
+        try:
+            # Prepare symbols for query
+            symbols_str = "', '".join(symbols)
+            
+            # Query historical prices
+            query = f"""
+            SELECT 
+                symbol,
+                date,
+                close
+            FROM PROD_EODHD.main.PROD_EOD_survivorship
+            WHERE symbol IN ('{symbols_str}')
+            AND date >= '{start_date}'
+            AND date <= '{end_date}'
+            ORDER BY symbol, date ASC
+            """
+            
+            result = conn.execute(query).fetchall()
+            
+            # Build data dictionary
+            price_data = {}
+            for row in result:
+                symbol, date, close = row
+                # Remove .US suffix for response
+                clean_symbol = symbol.replace('.US', '')
+                
+                if clean_symbol not in price_data:
+                    price_data[clean_symbol] = []
+                
+                price_data[clean_symbol].append({
+                    'date': date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date),
+                    'close': float(close) if close else None
+                })
+            
+            logger.info(f"Fetched {len(result)} price records for {len(price_data)} symbols")
+            return price_data
+            
+        finally:
+            conn.close()
+    
     def get_cache_info(self) -> Dict:
         """Get cache status information"""
         with self._lock:

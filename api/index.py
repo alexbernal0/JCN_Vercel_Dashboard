@@ -39,6 +39,13 @@ from .portfolio_allocation import (
     calculate_portfolio_allocation
 )
 
+# Import stock prices module
+from .stock_prices_module import (
+    StockPricesRequest,
+    StockPricesResponse,
+    get_stock_prices
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,6 +78,7 @@ async def root():
             "/api/portfolio/performance": "POST - Get portfolio performance data",
             "/api/portfolio/allocation": "POST - Get portfolio allocation for pie charts",
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
+            "/api/stock/prices": "POST - Get historical stock prices for chart",
             "/api/health": "GET - Health check"
         }
     }
@@ -192,6 +200,35 @@ async def get_benchmarks(
     except Exception as e:
         logger.error(f"Error calculating benchmarks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error calculating benchmarks: {str(e)}")
+
+
+@app.post("/api/stock/prices", response_model=StockPricesResponse)
+async def get_historical_stock_prices(request: StockPricesRequest):
+    """
+    Get historical daily closing prices for portfolio stocks.
+    
+    This endpoint fetches up to 20 years of daily closing prices from MotherDuck
+    for all stocks in the portfolio. The client can then filter by time period
+    without additional API calls.
+    
+    Args:
+        request: List of stock symbols
+    
+    Returns:
+        StockPricesResponse with historical prices for each symbol
+    """
+    try:
+        logger.info(f"Stock prices request: {len(request.symbols)} symbols")
+        
+        result = get_stock_prices(request)
+        
+        logger.info(f"Stock prices fetched: {len(result.data)} symbols")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error fetching stock prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching stock prices: {str(e)}")
 
 
 # Vercel serverless function handler

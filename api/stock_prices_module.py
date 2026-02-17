@@ -32,9 +32,10 @@ def get_stock_prices(request: StockPricesRequest) -> StockPricesResponse:
     """
     cache_mgr = get_cache_manager()
     
-    # Calculate date range (20 years)
+    # Calculate date range (5 years for faster loading)
+    # Client can filter to shorter periods, and we can add longer periods later
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=20*365)
+    start_date = end_date - timedelta(days=5*365)
     
     # Add .US suffix for MotherDuck
     symbols_with_suffix = [f"{symbol}.US" for symbol in request.symbols]

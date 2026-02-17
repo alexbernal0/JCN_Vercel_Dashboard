@@ -10,7 +10,7 @@ import {
   TableCell,
   Button
 } from '@tremor/react';
-import { ArrowUpIcon, ArrowDownIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
 
 interface PortfolioPerformanceData {
   security: string;
@@ -31,7 +31,6 @@ interface PortfolioPerformanceData {
 interface PortfolioPerformanceTableProps {
   data: PortfolioPerformanceData[];
   isLoading?: boolean;
-  onRefresh?: () => void;
 }
 
 type SortField = keyof PortfolioPerformanceData | null;
@@ -89,8 +88,7 @@ const getDailyChangeColor = (value: number): string => {
 
 export default function PortfolioPerformanceTable({
   data,
-  isLoading = false,
-  onRefresh
+  isLoading = false
 }: PortfolioPerformanceTableProps) {
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -146,17 +144,7 @@ export default function PortfolioPerformanceTable({
         <h3 className="text-base font-semibold text-gray-900">
           Portfolio Performance Details
         </h3>
-        {onRefresh && (
-          <Button
-            size="xs"
-            variant="secondary"
-            icon={ArrowPathIcon}
-            onClick={onRefresh}
-            loading={isLoading}
-          >
-            Refresh Data
-          </Button>
-        )}
+        {/* Refresh button removed - use main page refresh button */}
       </div>
 
       {/* Compact Table */}
@@ -248,10 +236,7 @@ export default function PortfolioPerformanceTable({
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={13} className="text-center py-6">
-                  <div className="flex items-center justify-center">
-                    <ArrowPathIcon className="w-5 h-5 animate-spin text-gray-400 mr-2" />
-                    <span className="text-gray-500 text-sm">Loading portfolio data...</span>
-                  </div>
+                  <span className="text-gray-500 text-sm">Loading portfolio data...</span>
                 </TableCell>
               </TableRow>
             ) : sortedData.length === 0 ? (

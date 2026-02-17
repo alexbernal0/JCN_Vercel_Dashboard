@@ -2,6 +2,7 @@
 Benchmarks API Endpoint
 
 Calculates portfolio performance vs. benchmark (SPY) using MotherDuck data.
+Implements 24-hour caching for fast loading (same as Portfolio Performance).
 
 Calculations:
 1. Portfolio Est. Daily % Change - Weighted average of portfolio holdings
@@ -10,13 +11,18 @@ Calculations:
 """
 
 import os
-from datetime import datetime
+import json
+from datetime import datetime, date
 from typing import List, Dict, Any
 from pydantic import BaseModel
 import duckdb
 
 # Set HOME environment variable for DuckDB in serverless
 os.environ['HOME'] = '/tmp'
+
+# Cache directory
+CACHE_DIR = '/tmp/jcn_cache'
+BENCHMARKS_CACHE_FILE = f'{CACHE_DIR}/benchmarks_data.json'
 
 
 class HoldingInput(BaseModel):
@@ -39,6 +45,71 @@ class BenchmarksResponse(BaseModel):
     last_updated: str
     benchmark_symbol: str
     benchmark_date: str
+    cache_info: Dict[str, Any]
+
+
+def ensure_cache_dir():
+    """Ensure cache directory exists"""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def load_cached_benchmarks() -> Dict[str, Any] | None:
+    """
+    Load cached benchmarks data if available and fresh (same day).
+    
+    Returns:
+    --------
+    dict | None
+        Cached data if available and fresh, None otherwise
+    """
+    try:
+        if not os.path.exists(BENCHMARKS_CACHE_FILE):
+            return None
+        
+        with open(BENCHMARKS_CACHE_FILE, 'r') as f:
+            cache = json.load(f)
+        
+        # Check if cache is from today
+        cache_date = cache.get('cache_date')
+        today = str(date.today())
+        
+        if cache_date == today:
+            print(f"✅ Using cached benchmarks data from {cache_date}")
+            return cache
+        else:
+            print(f"⚠️ Cache expired (cache: {cache_date}, today: {today})")
+            return None
+            
+    except Exception as e:
+        print(f"Error loading cached benchmarks: {e}")
+        return None
+
+
+def save_benchmarks_cache(data: Dict[str, Any]):
+    """
+    Save benchmarks data to cache.
+    
+    Parameters:
+    -----------
+    data : dict
+        Benchmarks data to cache
+    """
+    try:
+        ensure_cache_dir()
+        
+        cache = {
+            'cache_date': str(date.today()),
+            'loaded_at': datetime.now().isoformat(),
+            'data': data
+        }
+        
+        with open(BENCHMARKS_CACHE_FILE, 'w') as f:
+            json.dump(cache, f, indent=2)
+        
+        print(f"✅ Benchmarks data cached to {BENCHMARKS_CACHE_FILE}")
+        
+    except Exception as e:
+        print(f"Error saving benchmarks cache: {e}")
 
 
 def get_spy_daily_change() -> Dict[str, Any]:
@@ -243,20 +314,50 @@ def calculate_portfolio_daily_change(holdings: List[HoldingInput]) -> Dict[str, 
         }
 
 
-async def calculate_benchmarks(request: BenchmarksRequest) -> BenchmarksResponse:
+async def calculate_benchmarks(request: BenchmarksRequest, force_refresh: bool = False) -> BenchmarksResponse:
     """
     Calculate portfolio benchmarks: portfolio return, benchmark return, and alpha.
+    
+    Implements 24-hour caching:
+    - Loads cached data if available and fresh (same day)
+    - Only queries MotherDuck if cache is missing or expired
+    - force_refresh parameter is ignored (cache always used if available)
     
     Parameters:
     -----------
     request : BenchmarksRequest
         Contains list of portfolio holdings
+    force_refresh : bool
+        Ignored - benchmarks always use cached data if available (same day)
     
     Returns:
     --------
     BenchmarksResponse
         Contains portfolio_daily_change, benchmark_daily_change, daily_alpha
     """
+    # Try to load from cache first
+    cached = load_cached_benchmarks()
+    
+    if cached and not force_refresh:
+        # Use cached data
+        data = cached['data']
+        return BenchmarksResponse(
+            portfolio_daily_change=data['portfolio_daily_change'],
+            benchmark_daily_change=data['benchmark_daily_change'],
+            daily_alpha=data['daily_alpha'],
+            last_updated=cached['loaded_at'],
+            benchmark_symbol=data['benchmark_symbol'],
+            benchmark_date=data['benchmark_date'],
+            cache_info={
+                'cache_hit': True,
+                'cache_date': cached['cache_date'],
+                'loaded_at': cached['loaded_at']
+            }
+        )
+    
+    # Cache miss or force refresh - calculate fresh data
+    print("⚠️ Cache miss - calculating fresh benchmarks data from MotherDuck")
+    
     # Calculate portfolio daily change
     portfolio_result = calculate_portfolio_daily_change(request.holdings)
     portfolio_daily_change = portfolio_result['daily_change']
@@ -269,11 +370,28 @@ async def calculate_benchmarks(request: BenchmarksRequest) -> BenchmarksResponse
     # Calculate alpha (excess return over benchmark)
     daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 2)
     
+    # Prepare response data
+    response_data = {
+        'portfolio_daily_change': portfolio_daily_change,
+        'benchmark_daily_change': benchmark_daily_change,
+        'daily_alpha': daily_alpha,
+        'benchmark_symbol': 'SPY',
+        'benchmark_date': benchmark_date
+    }
+    
+    # Save to cache
+    save_benchmarks_cache(response_data)
+    
     return BenchmarksResponse(
         portfolio_daily_change=portfolio_daily_change,
         benchmark_daily_change=benchmark_daily_change,
         daily_alpha=daily_alpha,
         last_updated=datetime.now().isoformat(),
         benchmark_symbol='SPY',
-        benchmark_date=benchmark_date
+        benchmark_date=benchmark_date,
+        cache_info={
+            'cache_hit': False,
+            'cache_date': str(date.today()),
+            'loaded_at': datetime.now().isoformat()
+        }
     )

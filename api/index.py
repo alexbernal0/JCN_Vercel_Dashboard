@@ -121,7 +121,10 @@ async def get_portfolio_performance(
 
 
 @app.post("/api/benchmarks", response_model=BenchmarksResponse)
-async def get_benchmarks(request: BenchmarksRequest):
+async def get_benchmarks(
+    request: BenchmarksRequest,
+    force_refresh: bool = Query(False, description="Force refresh benchmarks data")
+):
     """
     Get portfolio benchmarks vs SPY
     
@@ -141,7 +144,7 @@ async def get_benchmarks(request: BenchmarksRequest):
     try:
         logger.info(f"Benchmarks request: {len(request.holdings)} holdings")
         
-        result = await calculate_benchmarks(request)
+        result = await calculate_benchmarks(request, force_refresh=force_refresh)
         
         logger.info(f"Benchmarks calculated: portfolio={result.portfolio_daily_change}%, benchmark={result.benchmark_daily_change}%, alpha={result.daily_alpha}%")
         

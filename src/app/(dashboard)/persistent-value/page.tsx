@@ -75,9 +75,9 @@ export default function PersistentValuePage() {
     fetchPortfolioData(false);
   }, []);
 
-  // Handle refresh button
+  // Handle refresh button - reload entire page to refresh all components
   const handleRefresh = () => {
-    fetchPortfolioData(true);
+    window.location.reload();
   };
 
   // Handle portfolio save
@@ -128,7 +128,6 @@ export default function PersistentValuePage() {
           <PortfolioPerformanceTable 
             data={portfolioData}
             isLoading={isLoading}
-            onRefresh={handleRefresh}
           />
         </div>
 

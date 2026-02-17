@@ -1,7 +1,6 @@
 "use client";
 
 import { Card } from "@tremor/react";
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import { useState, useEffect } from "react";
 
 interface BenchmarksData {
@@ -113,17 +112,9 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
 
   return (
     <Card className="p-6">
-      {/* Header with title and refresh button */}
-      <div className="flex items-center justify-between mb-6">
+      {/* Header with title */}
+      <div className="mb-6">
         <h2 className="text-lg font-semibold text-gray-900">📊 Benchmarks</h2>
-        <button
-          onClick={fetchBenchmarks}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
-        >
-          <ArrowPathIcon className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
       </div>
 
       {/* Three metrics in a grid */}

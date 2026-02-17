@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { siteConfig } from "./siteConfig"
+import { SWRProvider } from "@/lib/swr-provider"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -45,7 +46,9 @@ export default function RootLayout({
         className={`${inter.className} antialiased selection:bg-indigo-100 selection:text-indigo-700`}
         suppressHydrationWarning
       >
-        {children}
+        <SWRProvider>
+          {children}
+        </SWRProvider>
       </body>
     </html>
   )

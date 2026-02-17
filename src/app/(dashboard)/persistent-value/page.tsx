@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import useSWR, { mutate } from 'swr'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
 import Benchmarks from '@/components/dashboard/Benchmarks'
@@ -30,52 +31,58 @@ const DEFAULT_HOLDINGS = [
   { symbol: 'TSM', costBasis: 99.61, shares: 5850 },
 ];
 
+// Custom fetcher for POST requests with body
+const portfolioFetcher = async ([url, holdings]: [string, any[]]) => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      holdings: holdings.map(h => ({
+        symbol: h.symbol,
+        cost_basis: h.costBasis,
+        shares: h.shares
+      }))
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.statusText}`);
+  }
+
+  return response.json();
+};
+
 export default function PersistentValuePage() {
-  const [portfolioData, setPortfolioData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string>('--');
   const [currentHoldings, setCurrentHoldings] = useState(DEFAULT_HOLDINGS);
 
-  // Fetch portfolio performance data
-  const fetchPortfolioData = async (forceRefresh = false) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(`/api/portfolio/performance?force_refresh=${forceRefresh}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          holdings: currentHoldings.map(h => ({
-            symbol: h.symbol,
-            cost_basis: h.costBasis,
-            shares: h.shares
-          }))
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      setPortfolioData(result.data);
-      setLastUpdated(new Date(result.last_updated).toLocaleString());
-    } catch (error) {
-      console.error('Error fetching portfolio data:', error);
-      // TODO: Show error toast
-    } finally {
-      setIsLoading(false);
+  // Use SWR for automatic caching and revalidation
+  const { data, isLoading } = useSWR(
+    ['/api/portfolio/performance?force_refresh=false', currentHoldings],
+    portfolioFetcher,
+    {
+      // Keep data in cache and show it instantly on return
+      revalidateOnMount: true,
+      dedupingInterval: 60000, // 60 seconds
+      // Don't revalidate automatically - only on manual refresh
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
     }
-  };
+  );
 
-  // Initial load
-  useEffect(() => {
-    fetchPortfolioData(false);
-  }, []);
+  const portfolioData = data?.data || [];
+  const lastUpdated = data?.last_updated 
+    ? new Date(data.last_updated).toLocaleString() 
+    : '--';
 
-  // Handle refresh button - reload entire page to refresh all components
-  const handleRefresh = () => {
+  // Handle refresh button - force revalidate all data
+  const handleRefresh = async () => {
+    // Revalidate both portfolio and benchmarks data
+    await mutate(['/api/portfolio/performance?force_refresh=true', currentHoldings]);
+    await mutate(['/api/portfolio/benchmarks?force_refresh=true', currentHoldings]);
+    
+    // Force a fresh fetch
     window.location.reload();
   };
 
@@ -83,8 +90,7 @@ export default function PersistentValuePage() {
   const handlePortfolioSave = (holdings: any[]) => {
     console.log('Portfolio saved:', holdings);
     setCurrentHoldings(holdings);
-    // Fetch new data with updated holdings
-    fetchPortfolioData(false);
+    // SWR will automatically refetch with new holdings
   };
 
   return (
@@ -122,7 +128,7 @@ export default function PersistentValuePage() {
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Portfolio Performance Details Table - NEW */}
+        {/* Portfolio Performance Details Table */}
         <div className="mb-8">
           <PortfolioPerformanceTable 
             data={portfolioData}
@@ -173,8 +179,6 @@ export default function PersistentValuePage() {
             </div>
           </div>
         </div>
-
-        {/* Old Benchmarks section removed - using new Benchmarks component above */}
 
         {/* Portfolio Allocation */}
         <div className="mb-8">

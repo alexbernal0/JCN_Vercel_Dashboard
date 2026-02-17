@@ -1,7 +1,7 @@
 "use client";
 
 import { Card } from "@tremor/react";
-import { useState, useEffect, useCallback } from "react";
+import useSWR from 'swr';
 
 interface BenchmarksData {
   portfolio_daily_change: number;
@@ -20,52 +20,43 @@ interface BenchmarksProps {
   }>;
 }
 
+// Custom fetcher for POST requests with body
+const benchmarksFetcher = async ([url, holdings]: [string, any[]]) => {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ holdings }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+};
+
 export default function Benchmarks({ holdings }: BenchmarksProps) {
-  const [data, setData] = useState<BenchmarksData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<string>("");
-
-  const fetchBenchmarks = useCallback(async () => {
-    if (!holdings || holdings.length === 0) {
-      setLoading(false);
-      setError("No holdings data available");
-      return;
+  // Use SWR for automatic caching and revalidation
+  const { data, error, isLoading } = useSWR<BenchmarksData>(
+    holdings && holdings.length > 0 
+      ? ['/api/benchmarks?force_refresh=false', holdings]
+      : null, // Don't fetch if no holdings
+    benchmarksFetcher,
+    {
+      // Keep data in cache and show it instantly on return
+      revalidateOnMount: true,
+      dedupingInterval: 60000, // 60 seconds
+      // Don't revalidate automatically - only on manual refresh
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
     }
+  );
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/benchmarks", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ holdings }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      setData(result);
-      
-      // Format last updated timestamp
-      const date = new Date(result.last_updated);
-      setLastUpdated(date.toLocaleString());
-    } catch (err) {
-      console.error("Error fetching benchmarks:", err);
-      setError(err instanceof Error ? err.message : "Failed to load benchmarks");
-    } finally {
-      setLoading(false);
-    }
-  }, [holdings]);
-
-  useEffect(() => {
-    fetchBenchmarks();
-  }, [fetchBenchmarks]);
+  const lastUpdated = data?.last_updated 
+    ? new Date(data.last_updated).toLocaleString() 
+    : "";
 
   const formatPercentage = (value: number) => {
     const sign = value >= 0 ? "+" : "";
@@ -78,7 +69,7 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
     return "text-gray-600";
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
@@ -96,13 +87,13 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
           <h2 className="text-lg font-semibold text-gray-900">📊 Benchmarks</h2>
         </div>
         <div className="text-center py-8 text-gray-600">
-          {error === "No holdings data available" ? (
+          {!holdings || holdings.length === 0 ? (
             <div>
               <p className="mb-2">No portfolio holdings available.</p>
               <p className="text-sm">Please add holdings in the Portfolio Input section below.</p>
             </div>
           ) : (
-            <div className="text-red-600">Error: {error}</div>
+            <div className="text-red-600">Error: {error.message}</div>
           )}
         </div>
       </Card>

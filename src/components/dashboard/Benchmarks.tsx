@@ -1,7 +1,7 @@
 "use client";
 
 import { Card } from "@tremor/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface BenchmarksData {
   portfolio_daily_change: number;
@@ -26,9 +26,10 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
-  const fetchBenchmarks = async () => {
+  const fetchBenchmarks = useCallback(async () => {
     if (!holdings || holdings.length === 0) {
       setLoading(false);
+      setError("No holdings data available");
       return;
     }
 
@@ -60,11 +61,11 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [holdings]);
 
   useEffect(() => {
     fetchBenchmarks();
-  }, [holdings]);
+  }, [fetchBenchmarks]);
 
   const formatPercentage = (value: number) => {
     const sign = value >= 0 ? "+" : "";
@@ -94,7 +95,16 @@ export default function Benchmarks({ holdings }: BenchmarksProps) {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-gray-900">📊 Benchmarks</h2>
         </div>
-        <div className="text-center py-8 text-red-600">Error: {error}</div>
+        <div className="text-center py-8 text-gray-600">
+          {error === "No holdings data available" ? (
+            <div>
+              <p className="mb-2">No portfolio holdings available.</p>
+              <p className="text-sm">Please add holdings in the Portfolio Input section below.</p>
+            </div>
+          ) : (
+            <div className="text-red-600">Error: {error}</div>
+          )}
+        </div>
       </Card>
     );
   }

@@ -60,12 +60,14 @@ export function Sidebar() {
     <div className="flex h-screen w-64 flex-col border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
       {/* Logo/Title */}
       <div className="border-b border-gray-200 p-6 dark:border-gray-800">
-        <h1 className="text-lg font-bold text-gray-900 dark:text-gray-50">
-          JCN Financial
-        </h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Investment Dashboard
-        </p>
+        <Link href="/" className="block">
+          <h1 className="text-lg font-bold text-gray-900 hover:text-blue-600 dark:text-gray-50 dark:hover:text-blue-400 transition-colors">
+            🏠 JCN Financial
+          </h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Investment Dashboard
+          </p>
+        </Link>
       </div>
 
       {/* Navigation */}

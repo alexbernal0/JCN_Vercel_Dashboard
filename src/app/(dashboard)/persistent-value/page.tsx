@@ -5,6 +5,7 @@ import useSWR, { mutate } from 'swr'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
 import Benchmarks from '@/components/dashboard/Benchmarks'
+import PortfolioAllocation from '@/components/dashboard/PortfolioAllocation'
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -142,6 +143,19 @@ export default function PersistentValuePage() {
         <div className="mb-8">
           <Benchmarks 
             holdings={currentHoldings.map(h => ({
+              symbol: h.symbol,
+              cost_basis: h.costBasis,
+              shares: h.shares
+            }))}
+          />
+        </div>
+
+        <hr className="my-8 border-gray-200 dark:border-gray-800" />
+
+        {/* Portfolio Allocation Section */}
+        <div className="mb-8">
+          <PortfolioAllocation 
+            portfolio={currentHoldings.map(h => ({
               symbol: h.symbol,
               cost_basis: h.costBasis,
               shares: h.shares

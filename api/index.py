@@ -32,6 +32,13 @@ from .benchmarks import (
     calculate_benchmarks
 )
 
+# Import portfolio allocation module
+from .portfolio_allocation import (
+    PortfolioAllocationRequest,
+    PortfolioAllocationResponse,
+    calculate_portfolio_allocation
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,6 +69,7 @@ async def root():
         "status": "operational",
         "endpoints": {
             "/api/portfolio/performance": "POST - Get portfolio performance data",
+            "/api/portfolio/allocation": "POST - Get portfolio allocation for pie charts",
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/health": "GET - Health check"
         }
@@ -118,6 +126,37 @@ async def get_portfolio_performance(
     except Exception as e:
         logger.error(f"Error calculating portfolio performance: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error calculating portfolio performance: {str(e)}")
+
+
+@app.post("/api/portfolio/allocation", response_model=PortfolioAllocationResponse)
+async def get_portfolio_allocation(request: PortfolioAllocationRequest):
+    """
+    Get portfolio allocation data for 4 pie charts.
+    
+    This endpoint calculates:
+    1. Company Allocation - Individual stock percentages
+    2. Category Style Allocation - Large/Mid/Small Growth/Value/Blend
+    3. Sector Allocation - GICS sector groupings
+    4. Industry Allocation - Industry groupings
+    
+    Args:
+        request: Portfolio holdings (symbol, cost_basis, shares)
+    
+    Returns:
+        PortfolioAllocationResponse with data for 4 pie charts
+    """
+    try:
+        logger.info(f"Portfolio allocation request: {len(request.portfolio)} holdings")
+        
+        result = calculate_portfolio_allocation(request)
+        
+        logger.info(f"Portfolio allocation calculated: {len(result.company)} companies, {len(result.sector)} sectors")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error calculating portfolio allocation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error calculating portfolio allocation: {str(e)}")
 
 
 @app.post("/api/benchmarks", response_model=BenchmarksResponse)

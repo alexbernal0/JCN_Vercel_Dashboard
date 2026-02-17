@@ -82,7 +82,13 @@ def calculate_portfolio_allocation(request: PortfolioAllocationRequest) -> Portf
         
         # Get cache manager and fetch MotherDuck data
         cache_mgr = get_cache_manager()
-        stock_data = cache_mgr.get_portfolio_data(symbols)
+        
+        # Fetch data for all symbols
+        stock_data = {}
+        for symbol in symbols:
+            data = cache_mgr.get_motherduck_data(symbol)
+            if data:
+                stock_data[symbol] = data
         
         # Create lookup for shares and cost basis
         portfolio_lookup = {item['symbol']: item for item in portfolio}

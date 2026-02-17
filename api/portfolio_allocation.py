@@ -83,12 +83,16 @@ def calculate_portfolio_allocation(request: PortfolioAllocationRequest) -> Portf
         # Get cache manager and fetch MotherDuck data
         cache_mgr = get_cache_manager()
         
-        # Fetch data for all symbols
-        stock_data = {}
-        for symbol in symbols:
-            data = cache_mgr.get_motherduck_data(symbol)
-            if data:
-                stock_data[symbol] = data
+        # Try to get data from cache first, if not available, fetch from MotherDuck
+        stock_data = cache_mgr.get_all_motherduck_data()
+        
+        # If cache is empty or doesn't have all symbols, fetch from MotherDuck
+        if not stock_data or not all(f"{s}.US" in stock_data for s in symbols):
+            logger.info("Cache miss or incomplete, fetching from MotherDuck")
+            stock_data = cache_mgr.fetch_motherduck_data(symbols)
+        
+        # Filter to only requested symbols
+        stock_data = {k: v for k, v in stock_data.items() if k.replace('.US', '') in symbols}
         
         # Create lookup for shares and cost basis
         portfolio_lookup = {item['symbol']: item for item in portfolio}
@@ -102,14 +106,20 @@ def calculate_portfolio_allocation(request: PortfolioAllocationRequest) -> Portf
         total_value = 0.0
         
         # First pass: calculate total portfolio value
-        for symbol, info in stock_data.items():
+        for symbol_key, info in stock_data.items():
+            symbol = symbol_key.replace('.US', '')
+            if symbol not in portfolio_lookup:
+                continue
             shares = portfolio_lookup[symbol]['shares']
             current_price = info.get('latest_eod_close', 0)
             current_value = current_price * shares
             total_value += current_value
         
         # Second pass: calculate percentages and group data
-        for symbol, info in stock_data.items():
+        for symbol_key, info in stock_data.items():
+            symbol = symbol_key.replace('.US', '')
+            if symbol not in portfolio_lookup:
+                continue
             shares = portfolio_lookup[symbol]['shares']
             current_price = info.get('latest_eod_close', 0)
             current_value = current_price * shares

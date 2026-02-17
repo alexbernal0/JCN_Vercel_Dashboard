@@ -179,14 +179,6 @@ class CacheManager:
                 WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
                 AND date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship)
             ),
-            fundamentals_data AS (
-                SELECT 
-                    symbol,
-                    sector as fund_sector,
-                    industry as fund_industry
-                FROM PROD_EODHD.main.PROD_EOD_Fundamentals
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-            ),
             previous_close AS (
                 SELECT 
                     symbol,
@@ -226,15 +218,14 @@ class CacheManager:
             SELECT 
                 l.symbol,
                 l.latest_eod_close,
-                COALESCE(l.gics_sector, f.fund_sector) as gics_sector,
-                COALESCE(l.industry, f.fund_industry) as industry,
+                l.gics_sector,
+                l.industry,
                 p.prev_close,
                 y.ytd_start_price,
                 ya.year_ago_price,
                 w.week_52_high,
                 w.week_52_low
             FROM latest_eod l
-            LEFT JOIN fundamentals_data f ON l.symbol = f.symbol
             LEFT JOIN previous_close p ON l.symbol = p.symbol
             LEFT JOIN ytd_start y ON l.symbol = y.symbol
             LEFT JOIN year_ago ya ON l.symbol = ya.symbol

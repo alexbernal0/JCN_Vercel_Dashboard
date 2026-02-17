@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
+import Benchmarks from '@/components/dashboard/Benchmarks'
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -133,22 +134,14 @@ export default function PersistentValuePage() {
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Metrics Section */}
-        <div className="mb-8 grid gap-6 md:grid-cols-3">
-          <MetricCard 
-            title="Portfolio Est. Daily % Change" 
-            value="+0.00%" 
-            trend="neutral"
-          />
-          <MetricCard 
-            title="Benchmark Est. Daily % Change" 
-            value="+0.00%" 
-            trend="neutral"
-          />
-          <MetricCard 
-            title="Est. Daily Alpha" 
-            value="+0.00%" 
-            trend="neutral"
+        {/* Benchmarks Section */}
+        <div className="mb-8">
+          <Benchmarks 
+            holdings={currentHoldings.map(h => ({
+              symbol: h.symbol,
+              cost_basis: h.costBasis,
+              shares: h.shares
+            }))}
           />
         </div>
 

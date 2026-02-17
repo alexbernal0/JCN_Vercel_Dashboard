@@ -25,6 +25,13 @@ from .portfolio_performance import (
     calculate_portfolio_performance
 )
 
+# Import benchmarks module
+from .benchmarks import (
+    BenchmarksRequest,
+    BenchmarksResponse,
+    calculate_benchmarks
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +62,7 @@ async def root():
         "status": "operational",
         "endpoints": {
             "/api/portfolio/performance": "POST - Get portfolio performance data",
+            "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/health": "GET - Health check"
         }
     }
@@ -110,6 +118,38 @@ async def get_portfolio_performance(
     except Exception as e:
         logger.error(f"Error calculating portfolio performance: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error calculating portfolio performance: {str(e)}")
+
+
+@app.post("/api/benchmarks", response_model=BenchmarksResponse)
+async def get_benchmarks(request: BenchmarksRequest):
+    """
+    Get portfolio benchmarks vs SPY
+    
+    This endpoint calculates:
+    1. Portfolio Est. Daily % Change - Weighted average of portfolio holdings
+    2. Benchmark Est. Daily % Change - SPY daily change from MotherDuck
+    3. Est. Daily Alpha - Portfolio return minus benchmark return
+    
+    All data comes from MotherDuck (no external APIs).
+    
+    Args:
+        request: Portfolio holdings (symbol, cost_basis, shares)
+    
+    Returns:
+        BenchmarksResponse with portfolio_daily_change, benchmark_daily_change, daily_alpha
+    """
+    try:
+        logger.info(f"Benchmarks request: {len(request.holdings)} holdings")
+        
+        result = await calculate_benchmarks(request)
+        
+        logger.info(f"Benchmarks calculated: portfolio={result.portfolio_daily_change}%, benchmark={result.benchmark_daily_change}%, alpha={result.daily_alpha}%")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error calculating benchmarks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error calculating benchmarks: {str(e)}")
 
 
 # Vercel serverless function handler

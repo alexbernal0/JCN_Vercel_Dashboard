@@ -7,8 +7,7 @@ import {
   TableRow,
   TableHeaderCell,
   TableBody,
-  TableCell,
-  Button
+  TableCell
 } from '@tremor/react';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from 'react'
-import { MetricCard } from '@/components/dashboard/MetricCard'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
 import Benchmarks from '@/components/dashboard/Benchmarks'

@@ -47,7 +47,7 @@ const fetcher = async (url: string, portfolio: any[]) => {
 
 export default function PortfolioAllocation({ portfolio }: PortfolioAllocationProps) {
   const { data, error, isLoading } = useSWR<PortfolioAllocationData>(
-    ['/api/portfolio_allocation', portfolio],
+    ['/api/portfolio/allocation', portfolio],
     ([url, portfolio]: [string, any[]]) => fetcher(url, portfolio),
     {
       revalidateOnFocus: false,

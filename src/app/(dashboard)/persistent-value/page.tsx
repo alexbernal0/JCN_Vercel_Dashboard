@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import useSWR, { mutate } from 'swr'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
 import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerformanceTable'
@@ -10,6 +11,22 @@ import StockPriceComparison from '@/components/dashboard/StockPriceComparison'
 import PortfolioFundamentalsTable from '@/components/dashboard/PortfolioFundamentalsTable'
 import PortfolioAggregatedMetricsTable from '@/components/dashboard/PortfolioAggregatedMetricsTable'
 import PortfolioQualityRadarCharts from '@/components/dashboard/PortfolioQualityRadarCharts'
+import PortfolioTrendsErrorBoundary from '@/components/dashboard/PortfolioTrendsErrorBoundary'
+
+const PortfolioTrendsCharts = dynamic(
+  () => import('@/components/dashboard/PortfolioTrendsCharts'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-50">Portfolio Trends</h3>
+        <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Loading trend charts…</p>
+        </div>
+      </div>
+    ),
+  },
+)
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -191,6 +208,13 @@ export default function PersistentValuePage() {
 
         {/* Portfolio Quality Radar Charts – one radar per stock, 5 scores */}
         <PortfolioQualityRadarCharts symbols={currentHoldings.map(h => h.symbol)} />
+
+        {/* Portfolio Trends – dynamic import (ssr:false) + error boundary */}
+        <div className="mt-8">
+          <PortfolioTrendsErrorBoundary>
+            <PortfolioTrendsCharts symbols={currentHoldings.map(h => h.symbol)} />
+          </PortfolioTrendsErrorBoundary>
+        </div>
       </div>
 
       {/* Portfolio Input - Fixed at bottom */}

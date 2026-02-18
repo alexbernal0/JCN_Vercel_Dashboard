@@ -337,6 +337,82 @@ class CacheManager:
             
         finally:
             conn.close()
+
+    def fetch_weekly_ohlc(self, symbols: List[str], start_date: str, end_date: str) -> Dict:
+        """
+        Fetch weekly OHLC from MotherDuck (aggregated from daily PROD_EOD_survivorship).
+        Week = Monday start (date_trunc 'week'). Used for portfolio trends candlestick charts.
+
+        Args:
+            symbols: List of ticker symbols (with .US suffix)
+            start_date: Start date YYYY-MM-DD
+            end_date: End date YYYY-MM-DD
+
+        Returns:
+            Dict[symbol, List[{ date, open, high, low, close }]]
+        """
+        import duckdb
+
+        logger.info(f"Fetching weekly OHLC for {len(symbols)} symbols from {start_date} to {end_date}")
+
+        motherduck_token = os.getenv('MOTHERDUCK_TOKEN')
+        if not motherduck_token:
+            raise ValueError("MOTHERDUCK_TOKEN not found in environment")
+
+        conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
+
+        try:
+            symbols_str = "', '".join(symbols)
+            # Use subquery with row_number so we don't rely on first/last(expr ORDER BY) (DuckDB version compatibility)
+            query = f"""
+            WITH ranked AS (
+                SELECT
+                    symbol,
+                    date_trunc('week', date)::date AS week_start,
+                    date,
+                    open,
+                    high,
+                    low,
+                    close,
+                    row_number() OVER (PARTITION BY symbol, date_trunc('week', date) ORDER BY date ASC) AS rn_asc,
+                    row_number() OVER (PARTITION BY symbol, date_trunc('week', date) ORDER BY date DESC) AS rn_desc
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE symbol IN ('{symbols_str}')
+                AND date >= '{start_date}'
+                AND date <= '{end_date}'
+            )
+            SELECT
+                symbol,
+                week_start,
+                max(CASE WHEN rn_asc = 1 THEN open END) AS open,
+                max(high) AS high,
+                min(low) AS low,
+                max(CASE WHEN rn_desc = 1 THEN close END) AS close
+            FROM ranked
+            GROUP BY symbol, week_start
+            ORDER BY symbol, week_start ASC
+            """
+            result = conn.execute(query).fetchall()
+
+            out = {}
+            for row in result:
+                sym, week_start, o, h, l, c = row
+                clean = sym.replace('.US', '') if sym else sym
+                if clean not in out:
+                    out[clean] = []
+                out[clean].append({
+                    'date': week_start.strftime('%Y-%m-%d') if hasattr(week_start, 'strftime') else str(week_start),
+                    'open': float(o) if o is not None else None,
+                    'high': float(h) if h is not None else None,
+                    'low': float(l) if l is not None else None,
+                    'close': float(c) if c is not None else None,
+                })
+
+            logger.info(f"Fetched weekly OHLC: {sum(len(v) for v in out.values())} bars for {len(out)} symbols")
+            return out
+
+        finally:
+            conn.close()
     
     def get_cache_info(self) -> Dict:
         """Get cache status information"""

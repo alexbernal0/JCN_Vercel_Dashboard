@@ -9,6 +9,7 @@ import PortfolioAllocation from '@/components/dashboard/PortfolioAllocation'
 import StockPriceComparison from '@/components/dashboard/StockPriceComparison'
 import PortfolioFundamentalsTable from '@/components/dashboard/PortfolioFundamentalsTable'
 import PortfolioAggregatedMetricsTable from '@/components/dashboard/PortfolioAggregatedMetricsTable'
+import PortfolioQualityRadarCharts from '@/components/dashboard/PortfolioQualityRadarCharts'
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -187,6 +188,9 @@ export default function PersistentValuePage() {
 
         {/* Portfolio Aggregated Metrics – Max / Median / Average / Min across 5 scores */}
         <PortfolioAggregatedMetricsTable symbols={currentHoldings.map(h => h.symbol)} />
+
+        {/* Portfolio Quality Radar Charts – one radar per stock, 5 scores */}
+        <PortfolioQualityRadarCharts symbols={currentHoldings.map(h => h.symbol)} />
       </div>
 
       {/* Portfolio Input - Fixed at bottom */}

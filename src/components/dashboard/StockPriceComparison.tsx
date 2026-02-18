@@ -106,7 +106,7 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
   const chartOption = useMemo(() => {
     if (!chartData) return null;
 
-    const seriesSymbols = [...new Set(Object.keys(chartData))];
+    const seriesSymbols = Array.from(new Set(Object.keys(chartData)));
     if (seriesSymbols.length === 0) return null;
 
     // One line per stock

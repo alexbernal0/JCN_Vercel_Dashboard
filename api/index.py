@@ -64,6 +64,13 @@ from .portfolio_fundamentals import (
     get_portfolio_fundamentals
 )
 
+# Import portfolio trends data (weekly OHLC) module
+from .portfolio_trends_data import (
+    PortfolioTrendsRequest,
+    PortfolioTrendsResponse,
+    get_portfolio_trends_data
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,6 +103,7 @@ async def root():
             "/api/portfolio/performance": "POST - Get portfolio performance data",
             "/api/portfolio/allocation": "POST - Get portfolio allocation for pie charts",
             "/api/portfolio/fundamentals": "POST - Get portfolio fundamentals (OBQ + Momentum scores)",
+            "/api/portfolio/trends-data": "POST - Get weekly OHLC for portfolio trends charts",
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/stock/prices": "POST - Get historical stock prices for chart",
             "/api/health": "GET - Health check"
@@ -234,6 +242,21 @@ async def get_portfolio_fundamentals_endpoint(request: PortfolioFundamentalsRequ
         return result
     except Exception as e:
         logger.error(f"Error fetching portfolio fundamentals: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portfolio/trends-data", response_model=PortfolioTrendsResponse)
+async def get_portfolio_trends_data_endpoint(request: PortfolioTrendsRequest):
+    """
+    Get weekly OHLC for portfolio symbols for trends grid (candlestick + regression + drawdown).
+    """
+    try:
+        logger.info(f"Portfolio trends data request: {len(request.symbols)} symbols")
+        result = get_portfolio_trends_data(request)
+        logger.info(f"Portfolio trends data: {len(result.data)} symbols")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching portfolio trends data: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

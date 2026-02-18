@@ -13,7 +13,7 @@ Calculations:
 import os
 import json
 from datetime import datetime, date
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import duckdb
 
@@ -53,13 +53,13 @@ def ensure_cache_dir():
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-def load_cached_benchmarks() -> Dict[str, Any] | None:
+def load_cached_benchmarks() -> Optional[Dict[str, Any]]:
     """
     Load cached benchmarks data if available and fresh (same day).
     
     Returns:
     --------
-    dict | None
+    Optional[dict]
         Cached data if available and fresh, None otherwise
     """
     try:

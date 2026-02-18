@@ -1,6 +1,7 @@
-# 🔨 Building Guide - How to Add New Modules
+# Building Guide – How to Add New Modules
 
-**Last Updated:** 2026-02-15  
+**Last Updated:** February 18, 2026  
+**Current as of:** v1.2.0  
 **Skill Level:** Beginner-friendly  
 **Time per module:** 15-30 minutes
 

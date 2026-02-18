@@ -104,8 +104,11 @@ import duckdb
 ### PROD_EODHD Database
 
 **Tables:**
-1. `PROD_EOD_survivorship` - Daily historical prices (51.7M rows)
-2. `PROD_Fundamentals` - Quarterly fundamental metrics (450K rows)
+1. `PROD_EOD_survivorship` - Daily historical prices (51.7M rows); symbol with `.US`
+2. `PROD_EOD_ETFs` - ETF data (e.g. SPY for benchmarks)
+3. `PROD_Fundamentals` - Quarterly fundamental metrics (450K rows) when needed
+4. `PROD_OBQ_Scores` - OBQ scores (value, growth, financial strength, quality); symbol **without** `.US` (e.g. `AAPL`)
+5. `PROD_OBQ_Momentum_Scores` - Momentum scores; symbol **with** `.US` (e.g. `AAPL.US`)
 
 ### PROD_EOD_survivorship Table
 
@@ -144,6 +147,18 @@ import duckdb
 - **Total rows:** 450,000+
 - **Update frequency:** Quarterly
 - **Metrics:** 122 financial metrics per quarter
+
+### PROD_OBQ_Scores Table
+
+**Symbol format:** No `.US` suffix (e.g. `AAPL`, `SPMO`).
+
+**Score columns used by app:** `value_universe_score` (or `value_historical_score`, `value_sector_score`), `growth_score`, `fs_score`, `quality_score`. Latest row per symbol by `month_date`.
+
+### PROD_OBQ_Momentum_Scores Table
+
+**Symbol format:** `.US` suffix (e.g. `AAPL.US`).
+
+**Score columns used:** `obq_momentum_score`; fallback `systemscore` when null. Latest row per symbol by `week_end_date`.
 
 ---
 

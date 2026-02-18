@@ -35,7 +35,7 @@ interface PortfolioAllocationProps {
   }>;
 }
 
-const fetcher = async (url: string, portfolio: any[]) => {
+const allocationFetcher = async (url: string, portfolio: any[]) => {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -45,11 +45,20 @@ const fetcher = async (url: string, portfolio: any[]) => {
   return response.json();
 };
 
+// Stable key so SWR doesn't refetch on every parent re-render (portfolio array ref changes)
+function allocationKey(portfolio: PortfolioAllocationProps['portfolio']) {
+  if (!portfolio?.length) return null;
+  const symbols = portfolio.map(p => p.symbol).sort().join(',');
+  return ['/api/portfolio/allocation', symbols] as const;
+}
+
 export default function PortfolioAllocation({ portfolio }: PortfolioAllocationProps) {
+  const key = allocationKey(portfolio);
   const { data, error, isLoading } = useSWR<PortfolioAllocationData>(
-    ['/api/portfolio/allocation', portfolio],
-    ([url, portfolio]: [string, any[]]) => fetcher(url, portfolio),
+    key,
+    key ? ([url]) => allocationFetcher(url, portfolio) : null,
     {
+      revalidateOnMount: true,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       dedupingInterval: 3600000, // 1 hour

@@ -4,7 +4,7 @@ Transforms portfolio performance data into pie chart datasets for allocation vis
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from .cache_manager import get_cache_manager
@@ -15,7 +15,7 @@ class AllocationItem(BaseModel):
     """Single allocation item for pie chart"""
     name: str
     value: float
-    ticker: str | None = None
+    ticker: Optional[str] = None
 
 class PortfolioAllocationRequest(BaseModel):
     """Request model for portfolio allocation"""
@@ -29,7 +29,7 @@ class PortfolioAllocationResponse(BaseModel):
     industry: List[AllocationItem]
     last_updated: str
 
-def get_category_style(market_cap: float | None, pe_ratio: float | None, pb_ratio: float | None) -> str:
+def get_category_style(market_cap: Optional[float], pe_ratio: Optional[float], pb_ratio: Optional[float]) -> str:
     """
     Determine investment category style based on market cap and valuation metrics.
     

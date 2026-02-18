@@ -7,6 +7,8 @@ import PortfolioPerformanceTable from '@/components/dashboard/PortfolioPerforman
 import Benchmarks from '@/components/dashboard/Benchmarks'
 import PortfolioAllocation from '@/components/dashboard/PortfolioAllocation'
 import StockPriceComparison from '@/components/dashboard/StockPriceComparison'
+import PortfolioFundamentalsTable from '@/components/dashboard/PortfolioFundamentalsTable'
+import PortfolioAggregatedMetricsTable from '@/components/dashboard/PortfolioAggregatedMetricsTable'
 
 // Default portfolio holdings
 const DEFAULT_HOLDINGS = [
@@ -59,33 +61,35 @@ const portfolioFetcher = async ([url, holdings]: [string, any[]]) => {
 export default function PersistentValuePage() {
   const [currentHoldings, setCurrentHoldings] = useState(DEFAULT_HOLDINGS);
 
-  // Use SWR for automatic caching and revalidation
-  const { data, isLoading } = useSWR(
-    ['/api/portfolio/performance?force_refresh=false', currentHoldings],
+  // Stable key for SWR: same symbols => same key (avoid refetch on every render)
+  const perfKey = currentHoldings.length
+    ? ['/api/portfolio/performance?force_refresh=false', currentHoldings]
+    : null;
+
+  const { data, error: perfError, isLoading } = useSWR(
+    perfKey,
     portfolioFetcher,
     {
-      // Keep data in cache and show it instantly on return
       revalidateOnMount: true,
-      dedupingInterval: 60000, // 60 seconds
-      // Don't revalidate automatically - only on manual refresh
+      dedupingInterval: 60000,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
     }
   );
 
-  const portfolioData = data?.data || [];
-  const lastUpdated = data?.last_updated 
-    ? new Date(data.last_updated).toLocaleString() 
+  const portfolioData = data?.data ?? [];
+  const lastUpdated = data?.last_updated
+    ? new Date(data.last_updated).toLocaleString()
     : '--';
 
-  // Handle refresh button - force revalidate all data
+  // Handle refresh button - revalidate all three modules (mutate the same keys components use so they refetch)
   const handleRefresh = async () => {
-    // Revalidate both portfolio and benchmarks data
-    await mutate(['/api/portfolio/performance?force_refresh=true', currentHoldings]);
-    await mutate(['/api/portfolio/benchmarks?force_refresh=true', currentHoldings]);
-    
-    // Force a fresh fetch
-    window.location.reload();
+    const symbolsStr = currentHoldings.map(h => h.symbol).sort().join(',');
+    await Promise.all([
+      mutate(['/api/portfolio/performance?force_refresh=false', currentHoldings]),
+      mutate(['/api/benchmarks?force_refresh=false', symbolsStr]),
+      mutate(['/api/portfolio/allocation', symbolsStr]),
+    ]);
   };
 
   // Handle portfolio save
@@ -132,6 +136,11 @@ export default function PersistentValuePage() {
 
         {/* Portfolio Performance Details Table */}
         <div className="mb-8">
+          {perfError && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+              Failed to load portfolio performance: {perfError.message}. Check that the API is running and MOTHERDUCK_TOKEN is set.
+            </div>
+          )}
           <PortfolioPerformanceTable 
             data={portfolioData}
             isLoading={isLoading}
@@ -140,7 +149,7 @@ export default function PersistentValuePage() {
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Benchmarks Section */}
+        {/* Benchmarks Section - uses same user symbols from currentHoldings */}
         <div className="mb-8">
           <Benchmarks 
             holdings={currentHoldings.map(h => ({
@@ -153,7 +162,7 @@ export default function PersistentValuePage() {
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Portfolio Allocation Section */}
+        {/* Portfolio Allocation Section - uses same user symbols from currentHoldings */}
         <div className="mb-8">
           <PortfolioAllocation 
             portfolio={currentHoldings.map(h => ({
@@ -173,110 +182,11 @@ export default function PersistentValuePage() {
           />
         </div>
 
-        {/* Holdings Table */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            Portfolio Holdings
-          </h2>
-          <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-900">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-50">Ticker</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-50">Company</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-50">Shares</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-50">Price</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-50">Value</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-50">Gain/Loss</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-50">Daily %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                      Loading portfolio data...
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        {/* Portfolio Fundamentals – OBQ + Momentum scores */}
+        <PortfolioFundamentalsTable symbols={currentHoldings.map(h => h.symbol)} />
 
-        {/* Portfolio Allocation */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            📊 Portfolio Allocation
-          </h2>
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Pie chart placeholders */}
-            <div className="flex h-96 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-              <p className="text-gray-500 dark:text-gray-400">Allocation by Stock</p>
-            </div>
-            <div className="flex h-96 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-              <p className="text-gray-500 dark:text-gray-400">Allocation by Sector</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Price Comparison Chart */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            📊 Normalized Stock Price Comparison
-          </h2>
-          
-          {/* Time period selector */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            {['1 Month', '3 Months', '6 Months', '1 Year', '5 Years', '10 Years', '20 Years'].map((period) => (
-              <button
-                key={period}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
-              >
-                {period}
-              </button>
-            ))}
-          </div>
-
-          {/* Chart placeholder */}
-          <div className="flex h-96 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-            <p className="text-gray-500 dark:text-gray-400">Price Comparison Chart</p>
-          </div>
-        </div>
-
-        {/* Fundamental Metrics */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            📊 Fundamental Metrics
-          </h2>
-          
-          {/* Metric selector buttons */}
-          <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-7">
-            {['P/E Ratio', 'P/B Ratio', 'Dividend Yield', 'ROE', 'Debt/Equity', 'Revenue Growth', 'Profit Margin'].map((metric) => (
-              <button
-                key={metric}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
-              >
-                {metric}
-              </button>
-            ))}
-          </div>
-
-          {/* Chart placeholder */}
-          <div className="flex h-96 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-            <p className="text-gray-500 dark:text-gray-400">Fundamental Metrics Chart</p>
-          </div>
-        </div>
-
-        {/* Quality Radar Chart */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-50">
-            📊 Quality Metrics Radar
-          </h2>
-          <div className="flex h-96 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-            <p className="text-gray-500 dark:text-gray-400">Quality Radar Chart</p>
-          </div>
-        </div>
+        {/* Portfolio Aggregated Metrics – Max / Median / Average / Min across 5 scores */}
+        <PortfolioAggregatedMetricsTable symbols={currentHoldings.map(h => h.symbol)} />
       </div>
 
       {/* Portfolio Input - Fixed at bottom */}

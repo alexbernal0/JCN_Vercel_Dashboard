@@ -35,12 +35,22 @@ const fetcher = async (url: string, symbols: string[]) => {
   return response.json();
 };
 
+// One canonical symbol per stock (strip .US if present) so we never duplicate series
+function canonicalSymbol(s: string) {
+  return s.replace(/\.US$/i, '').toUpperCase() || s;
+}
+
 export default function StockPriceComparison({ symbols }: StockPriceComparisonProps) {
   const [selectedPeriod, setSelectedPeriod] = useState('6 Months');
+
+  // One line per stock: request each symbol only once
+  const uniqueSymbols = useMemo(
+    () => Array.from(new Set(symbols.map(canonicalSymbol).filter(Boolean))),
+    [symbols]
+  );
   
-  // Fetch all historical data (up to 20 years)
   const { data, error, isLoading} = useSWR<StockPricesData>(
-    symbols.length > 0 ? ['/api/stock/prices', symbols] : null,
+    uniqueSymbols.length > 0 ? ['/api/stock/prices', uniqueSymbols] : null,
     ([url, syms]: [string, string[]]) => fetcher(url, syms),
     {
       revalidateOnFocus: false,
@@ -60,7 +70,7 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
     { label: '20 Years', months: 240 },
   ];
 
-  // Filter and normalize data based on selected period
+  // One line per stock: canonicalize keys and keep only one series per symbol
   const chartData = useMemo(() => {
     if (!data || !data.data) return null;
 
@@ -73,34 +83,34 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
     const normalized: Record<string, { date: string; value: number }[]> = {};
     
     for (const [symbol, prices] of Object.entries(data.data)) {
-      // Filter by date
-      const filteredPrices = prices.filter(p => new Date(p.date) >= cutoffDate);
-      
+      const key = canonicalSymbol(symbol);
+      if (!key || normalized[key]) continue; // one series per stock: first wins
+
+      const arr = Array.isArray(prices) ? prices : [];
+      const filteredPrices = arr.filter(p => p && new Date(p.date) >= cutoffDate);
       if (filteredPrices.length === 0) continue;
-      
-      // Normalize to starting value of 1.0
+
       const firstPrice = filteredPrices[0].close;
-      normalized[symbol] = filteredPrices.map(p => ({
+      if (firstPrice == null || firstPrice === 0) continue;
+
+      normalized[key] = filteredPrices.map(p => ({
         date: p.date,
-        value: p.close / firstPrice,
+        value: (p.close / firstPrice - 1) * 100,
       }));
     }
 
     return normalized;
   }, [data, selectedPeriod]);
 
-  // Prepare ECharts option
+  // Prepare ECharts option — exactly one series per stock
   const chartOption = useMemo(() => {
     if (!chartData) return null;
 
-    const symbols = Object.keys(chartData);
-    if (symbols.length === 0) return null;
+    const seriesSymbols = [...new Set(Object.keys(chartData))];
+    if (seriesSymbols.length === 0) return null;
 
-    // Get all unique dates (not needed for ECharts time axis)
-    // ECharts automatically handles time series data
-
-    // Prepare series data
-    const series = symbols.map(symbol => ({
+    // One line per stock
+    const series = seriesSymbols.map(symbol => ({
       name: symbol,
       type: 'line',
       smooth: false,
@@ -111,7 +121,7 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
       emphasis: {
         focus: 'series',
       },
-      data: chartData[symbol].map(p => [p.date, p.value.toFixed(4)]),
+      data: chartData[symbol].map(p => [p.date, Math.round(p.value * 100) / 100]),
     }));
 
     return {
@@ -120,9 +130,25 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
         axisPointer: {
           type: 'cross',
         },
+        formatter: (params: unknown) => {
+          const p = Array.isArray(params) ? params : [];
+          if (p.length === 0) return '';
+          const first = p[0] as { axisValue: string; value?: number | [string, number] };
+          const lines = [first.axisValue ?? ''];
+          const seen = new Set<string>();
+          (p as { seriesName: string; value?: number | [string, number] }[]).forEach((item) => {
+            if (seen.has(item.seriesName)) return; // one line per series to avoid duplicate text
+            seen.add(item.seriesName);
+            const raw = item.value;
+            const v = Array.isArray(raw) ? raw[1] : Number(raw);
+            const str = Number.isFinite(v) ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : String(raw);
+            lines.push(`${item.seriesName}: ${str}`);
+          });
+          return lines.join('<br/>');
+        },
       },
       legend: {
-        data: symbols,
+        data: seriesSymbols,
         right: 10,
         top: 10,
         orient: 'vertical',
@@ -146,9 +172,9 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
       },
       yAxis: {
         type: 'value',
-        name: 'Normalized Price',
+        name: 'Return %',
         axisLabel: {
-          formatter: '{value}',
+          formatter: (value: number) => (value >= 0 ? '+' : '') + value.toFixed(2) + '%',
         },
       },
       series,
@@ -210,9 +236,10 @@ export default function StockPriceComparison({ symbols }: StockPriceComparisonPr
         />
       </div>
 
-      {/* Time Horizon Buttons */}
+      {/* Time Horizon Buttons: clicking isolates the chart to that period only */}
       <div className="border-t border-gray-200 pt-6">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">⚙️ Time Horizon</h4>
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Time horizon</h4>
+        <p className="text-xs text-gray-500 mb-3">Click a button to show only that period; Y-axis is return vs. period start (00.00%).</p>
         <div className="grid grid-cols-7 gap-2">
           {timePeriods.map(period => (
             <button

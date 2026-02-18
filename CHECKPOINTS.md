@@ -1,62 +1,85 @@
 # Project Checkpoints
 
-This document tracks stable checkpoints in the project that can be used for rollback if needed.
+This document tracks stable checkpoints for rollback and branch-from points.
 
 ---
 
-## v1.1.0-stable (Current)
-**Date:** February 15, 2026  
-**Tag:** `v1.1.0-stable`
+## v1.2.0-fundamentals-aggregated (Current)
 
-### What's Working:
-- ✅ Landing page with full-screen background image
-- ✅ "Enter" button navigating to dashboard
-- ✅ Sidebar navigation with all pages
-- ✅ Dark/Light mode toggle
-- ✅ Dashboard home page
-- ✅ Persistent Value portfolio page (layout only, no data)
-- ✅ Python FastAPI backend (`/api/health`, `/api/test`, `/api/db-test`)
-- ✅ Clean architecture (no Tremor demo code)
+**Date:** February 18, 2026  
+**Tag:** `v1.2.0-fundamentals-aggregated`
 
-### What's NOT Implemented Yet:
-- ❌ Remaining portfolio pages (Olivia Growth, Pure Alpha)
-- ❌ Analysis tool pages (Stock Analysis, Market Analysis, Risk Management)
-- ❌ About page
-- ❌ Python functions to fetch real data
-- ❌ MotherDuck integration (token not set)
-- ❌ Charts and tables with real data
+### What's Working
 
-### How to Rollback:
+- ✅ Portfolio Performance Details (MotherDuck, 24hr cache)
+- ✅ Benchmarks (SPY comparison, alpha)
+- ✅ Portfolio Allocation (4 ECharts pie charts)
+- ✅ Normalized Stock Price Comparison (ECharts, time-period filters)
+- ✅ Portfolio Fundamentals table (5 scores: Value, Growth, Financial Strength, Quality, Momentum)
+- ✅ Portfolio Aggregated Metrics table (Max / Median / Average / Min)
+- ✅ Portfolio Input (edit/save holdings)
+- ✅ SWR caching; refresh revalidates performance, benchmarks, allocation
+- ✅ MotherDuck: PROD_EOD_survivorship, PROD_EOD_ETFs, PROD_OBQ_Scores, PROD_OBQ_Momentum_Scores
+
+### Removed in v1.2.0
+
+- Placeholder sections below Aggregated Metrics (Holdings duplicate, Allocation placeholder, Price Comparison placeholder, Fundamental Metrics, Quality Radar) removed so next modules can be built one at a time.
+
+### Rollback
+
 ```bash
-git checkout v1.1.0-stable
+git checkout v1.2.0-fundamentals-aggregated
 ```
 
-### Deployment:
-- **Production URL:** https://jcn-tremor.vercel.app
-- **GitHub:** https://github.com/alexbernal0/JCN_Vercel_Dashboard
+### Full Changelog
+
+See [CHECKPOINT_v1.2.0.md](./CHECKPOINT_v1.2.0.md).
 
 ---
 
-## v1.0.0 (Previous)
+## v1.1.0-portfolio-allocation
+
+**Date:** February 17, 2026  
+**Tag:** `v1.1.0-portfolio-allocation`
+
+### What's Working
+
+- ✅ Portfolio Performance Details, Benchmarks, Portfolio Allocation (4 pies)
+- ✅ SWR caching; Under Construction pages
+- ❌ No Fundamentals, Aggregated Metrics, or Stock Price Comparison yet
+
+### Rollback
+
+```bash
+git checkout v1.1.0-portfolio-allocation
+```
+
+---
+
+## v1.0.0
+
 **Date:** February 15, 2026  
 **Tag:** `v1.0.0`
 
-### What's Working:
-- ✅ Clean Next.js + Tremor foundation
-- ✅ Python FastAPI backend
-- ✅ Documentation (ARCHITECTURE.md, DATA_FLOW.md, BUILDING_GUIDE.md)
-- ✅ Build system working
+### What's Working
 
-### What's NOT Working:
-- ❌ No pages created yet
-- ❌ No navigation
-- ❌ No landing page
+- ✅ Next.js + FastAPI + MotherDuck foundation
+- ✅ Portfolio Performance Details, documentation
+- ❌ No allocation, fundamentals, or charts
+
+### Rollback
+
+```bash
+git checkout v1.0.0
+```
 
 ---
 
-## Future Checkpoints
+## Creating a New Checkpoint
 
-As we build more features, we'll create new checkpoints:
-- `v1.2.0-stable` - All portfolio pages complete
-- `v1.3.0-stable` - All analysis tool pages complete
-- `v2.0.0-stable` - Full Python integration with real data
+1. Implement and test the feature set.
+2. Create `CHECKPOINT_vX.Y.Z.md` with date, tag, file structure, API list, and rollback instructions.
+3. Update this file (CHECKPOINTS.md) with the new version as current.
+4. Update README, ARCHITECTURE, and docs as needed.
+5. Commit all changes, then tag: `git tag vX.Y.Z-short-name`
+6. Push: `git push origin main && git push origin vX.Y.Z-short-name`

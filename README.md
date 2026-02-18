@@ -1,55 +1,56 @@
-# 🚀 JCN Stock Scanner Dashboard
+# JCN Financial Dashboard (Persistent Value)
 
 **Status:** ✅ Production Ready  
-**Version:** 1.0.0  
-**Last Updated:** February 15, 2026
+**Version:** 1.2.0  
+**Last Updated:** February 18, 2026
 
-A military-grade, serverless stock scanner dashboard built with Next.js, FastAPI, and MotherDuck.
-
----
-
-## 🌐 Live URLs
-
-- **Production:** https://jcn-tremor.vercel.app
-- **API Health:** https://jcn-tremor.vercel.app/api/health
-- **GitHub:** https://github.com/alexbernal0/JCN_Vercel_Dashboard
+Serverless portfolio dashboard: Next.js frontend, FastAPI backend, MotherDuck (DuckDB) for all market and score data.
 
 ---
 
-## 🏗️ Tech Stack
+## Live URLs
+
+- **App:** https://jcn-tremor.vercel.app
+- **API health:** https://jcn-tremor.vercel.app/api/health
+- **Repo:** https://github.com/alexbernal0/JCN_Vercel_Dashboard
+
+---
+
+## Tech Stack
 
 | Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Frontend** | Next.js 15 + React 19 | Server-side rendering, routing |
-| **UI Components** | Tremor | Charts, tables, dashboards |
-| **Styling** | Tailwind CSS | Responsive design |
-| **Backend** | FastAPI (Python 3.12) | Serverless API |
-| **Database** | MotherDuck (DuckDB) | Cloud analytics database |
-| **Data Source** | yfinance | Real-time stock prices |
-| **Hosting** | Vercel | Serverless deployment |
+|-------|------------|---------|
+| Frontend | Next.js 15, React 19 | Routing, SSR, UI |
+| UI | Tremor, ECharts | Tables, charts |
+| Styling | Tailwind CSS | Layout, theme |
+| Backend | FastAPI (Python 3.x) | Serverless API (Vercel) |
+| Database | MotherDuck (DuckDB) | Prices, fundamentals, scores |
+| Data | PROD_EODHD + OBQ/Momentum tables | No yfinance in production |
+| Caching | SWR (frontend), 24hr (MotherDuck) | Fast repeat loads |
+| Hosting | Vercel | Serverless deploy |
+
+See [TECH_STACK.md](./TECH_STACK.md) for a full breakdown.
 
 ---
 
-## 📚 Documentation
+## Docs (onboard another AI or dev)
 
-### 📖 Essential Reading
-
-1. **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Complete system architecture
-2. **[DATA_FLOW.md](./DATA_FLOW.md)** - Data flow & architecture explained
-3. **[BUILDING_GUIDE.md](./BUILDING_GUIDE.md)** - Step-by-step tutorials
-
-### 🎯 Quick Links
-
-- [How data flows through the system](./DATA_FLOW.md#-visual-data-flow-diagram)
-- [How to add new pages](./BUILDING_GUIDE.md#-tutorial-1-add-a-simple-stock-screener)
-- [How to add new API endpoints](./BUILDING_GUIDE.md#step-1-add-the-api-endpoint)
-- [Common mistakes to avoid](./BUILDING_GUIDE.md#-common-mistakes-to-avoid)
+| Doc | Purpose |
+|-----|---------|
+| [CHECKPOINT_v1.2.0.md](./CHECKPOINT_v1.2.0.md) | Current release snapshot; rollback point |
+| [CHECKPOINTS.md](./CHECKPOINTS.md) | All checkpoint tags and rollback commands |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | High-level structure, config, endpoints |
+| [DATA_FLOW.md](./DATA_FLOW.md) | How data moves frontend → API → MotherDuck |
+| [TECH_STACK.md](./TECH_STACK.md) | Stack, versions, and responsibilities |
+| [BUILDING_GUIDE.md](./BUILDING_GUIDE.md) | How to add pages and API endpoints |
+| [docs/README.md](./docs/README.md) | Index of procedure and reference docs |
+| [docs/MOTHERDUCK_INTEGRATION.md](./docs/MOTHERDUCK_INTEGRATION.md) | DB connection, schema, .US handling, caching |
+| [docs/PROCEDURES.md](./docs/PROCEDURES.md) | Deploy, rollback, env, scripts |
+| [docs/STREAMLIT_REFERENCE_REBUILD.md](./docs/STREAMLIT_REFERENCE_REBUILD.md) | Streamlit → Vercel rebuild rules |
 
 ---
 
-## 🚀 Quick Start
-
-### 1. Clone & Install
+## Quick Start
 
 ```bash
 git clone https://github.com/alexbernal0/JCN_Vercel_Dashboard.git
@@ -57,125 +58,58 @@ cd JCN_Vercel_Dashboard
 pnpm install
 ```
 
-### 2. Set Environment Variables
+**Env:** Set `MOTHERDUCK_TOKEN` (e.g. in `.env.local` for local; Vercel env for production).  
+**Run:** `pnpm dev` (frontend); API runs via Next rewrites to Python serverless.
 
-Add `MOTHERDUCK_TOKEN` in Vercel:  
-https://vercel.com/obsidianquantitative/jcn-tremor/settings/environment-variables
+---
 
-### 3. Deploy
+## API Endpoints
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| GET | `/api/health` | — | Health; MOTHERDUCK_TOKEN check |
+| POST | `/api/portfolio/performance` | `{ holdings }` | Performance metrics |
+| POST | `/api/portfolio/allocation` | `{ portfolio }` | Pie-chart allocation |
+| POST | `/api/portfolio/fundamentals` | `{ symbols }` | 5 scores per symbol |
+| POST | `/api/benchmarks` | `{ holdings }` | SPY comparison, alpha |
+| POST | `/api/stock/prices` | `{ symbols }` | Historical daily prices |
+
+---
+
+## Project Layout
+
+```
+├── api/                    # Python serverless (FastAPI)
+│   ├── index.py            # Routes
+│   ├── portfolio_performance.py
+│   ├── portfolio_allocation.py
+│   ├── portfolio_fundamentals.py
+│   ├── benchmarks.py
+│   ├── stock_prices_module.py
+│   └── cache_manager.py
+├── src/
+│   ├── app/                # Next.js pages
+│   │   └── (dashboard)/persistent-value/page.tsx
+│   ├── components/dashboard/
+│   └── lib/swr-provider.tsx
+├── scripts/                # DB/schema helpers (describe_score_tables, check_fundamentals_data)
+├── docs/                   # Procedures, DB, deploy, Streamlit reference
+├── CHECKPOINT_v1.2.0.md    # Rollback snapshot
+└── CHECKPOINTS.md
+```
+
+---
+
+## Rollback to v1.2.0
 
 ```bash
-git push origin main  # Auto-deploys to Vercel
+git checkout v1.2.0-fundamentals-aggregated
 ```
+
+See [CHECKPOINTS.md](./CHECKPOINTS.md) for other tags.
 
 ---
 
-## 📁 Project Structure
+## Credits
 
-```
-jcn-tremor/
-├── api/index.py              # 🐍 All Python backend logic
-├── src/app/                  # ⚛️ Next.js pages
-├── src/components/           # 🎨 Reusable components
-├── ARCHITECTURE.md           # 📖 System architecture
-├── DATA_FLOW.md              # 🔄 How data flows
-└── BUILDING_GUIDE.md         # 🔨 Building tutorials
-```
-
----
-
-## 🔌 API Endpoints
-
-### Health Check
-```bash
-curl https://jcn-tremor.vercel.app/api/health
-```
-
-### Database Test
-```bash
-curl https://jcn-tremor.vercel.app/api/db-test
-```
-
-### Portfolio Performance
-```bash
-curl -X POST https://jcn-tremor.vercel.app/api/portfolio/performance \
-  -H "Content-Type: application/json" \
-  -d '{"symbols": ["AAPL", "GOOGL"], "start_date": "2024-01-01", "end_date": "2026-02-15"}'
-```
-
----
-
-## ➕ Adding New Features
-
-### Add API Endpoint
-```python
-# In api/index.py
-@app.get("/api/your-endpoint")
-async def your_function():
-    return {"data": "result"}
-```
-
-### Add Page
-```bash
-# Create file
-src/app/your-page/page.tsx
-
-# Visit
-https://jcn-tremor.vercel.app/your-page
-```
-
-**Full tutorials:** See [BUILDING_GUIDE.md](./BUILDING_GUIDE.md)
-
----
-
-## ✅ Verification
-
-After deployment:
-
-- [ ] Frontend loads: https://jcn-tremor.vercel.app
-- [ ] API works: https://jcn-tremor.vercel.app/api/health
-- [ ] Database connects: https://jcn-tremor.vercel.app/api/db-test
-
----
-
-## 🐛 Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| API returns 404 | Add `/api/` prefix to route |
-| MotherDuck fails | Set `MOTHERDUCK_TOKEN` in Vercel |
-| Build fails | Run `pnpm build` locally |
-| Charts don't show | Check data format |
-
-**Full guide:** See [ARCHITECTURE.md](./ARCHITECTURE.md)
-
----
-
-## 📈 Roadmap
-
-- [x] Foundation (Next.js + FastAPI + MotherDuck)
-- [x] Deployment to Vercel
-- [x] Comprehensive documentation
-- [ ] Stock screener page
-- [ ] Portfolio tracker
-- [ ] Performance charts
-- [ ] Watchlist functionality
-
----
-
-## 🙏 Credits
-
-Built with:
-- [Tremor](https://tremor.so) - Dashboard components
-- [Next.js](https://nextjs.org) - React framework
-- [FastAPI](https://fastapi.tiangolo.com) - Python API
-- [MotherDuck](https://motherduck.com) - Cloud database
-- [Vercel](https://vercel.com) - Hosting
-
-**Original Tremor template:** [README.tremor-original.md](./README.tremor-original.md)
-
----
-
-**Built with ❤️ by Manus AI**  
-**Last Updated:** February 15, 2026
-
+Tremor, Next.js, FastAPI, MotherDuck, Vercel.

@@ -1,54 +1,60 @@
-# 🏗️ JCN Stock Scanner - Architecture Documentation
+# JCN Financial Dashboard – Architecture
 
-**Status:** ✅ PRODUCTION READY  
-**Last Updated:** 2026-02-15  
-**Version:** 1.0.0
-
----
-
-## 🎯 Overview
-
-A military-grade, production-ready serverless stock scanner dashboard built with:
-- **Frontend:** Next.js 15 + Tremor (charts/tables)
-- **Backend:** FastAPI (Python 3.12)
-- **Database:** MotherDuck (DuckDB cloud)
-- **Hosting:** Vercel (serverless)
+**Status:** ✅ Production Ready  
+**Version:** 1.2.0  
+**Last Updated:** February 18, 2026
 
 ---
 
-## ✅ Deployment Status
+## Overview
 
-### Live URLs
-- **Production:** https://jcn-tremor.vercel.app
-- **API Health:** https://jcn-tremor.vercel.app/api/health
-- **API Test:** https://jcn-tremor.vercel.app/api/test
-- **DB Test:** https://jcn-tremor.vercel.app/api/db-test
+Serverless portfolio dashboard:
 
-### Verified Working
-- ✅ Next.js frontend deploys successfully
-- ✅ Python FastAPI backend responds correctly
-- ✅ API routing configured properly
-- ✅ Health check endpoint working
-- ⚠️ MotherDuck connection ready (needs token)
+- **Frontend:** Next.js 15, React 19, Tremor, ECharts, Tailwind
+- **Backend:** FastAPI (Python), Vercel serverless
+- **Database:** MotherDuck (DuckDB) – PROD_EODHD + OBQ/Momentum score tables
+- **Caching:** SWR (frontend), 24hr MotherDuck cache in API
 
 ---
 
-## 📁 Project Structure
+## Live URLs
+
+- **App:** https://jcn-tremor.vercel.app
+- **API health:** https://jcn-tremor.vercel.app/api/health
+
+---
+
+## Project Structure
 
 ```
-jcn-tremor/
-├── api/
-│   └── index.py              # FastAPI serverless function
+JCN_Vercel_Dashboard/
+├── api/                          # Python serverless (FastAPI)
+│   ├── index.py                   # All routes
+│   ├── portfolio_performance.py   # Performance metrics
+│   ├── portfolio_allocation.py    # Allocation for pie charts
+│   ├── portfolio_fundamentals.py  # OBQ + Momentum scores
+│   ├── benchmarks.py              # SPY comparison
+│   ├── stock_prices_module.py     # Historical prices
+│   └── cache_manager.py           # MotherDuck 24hr cache
 ├── src/
 │   ├── app/
-│   │   ├── overview/         # Dashboard pages
-│   │   ├── globals.css       # Tailwind styles
-│   │   └── layout.tsx        # Root layout
-│   └── components/           # Tremor components
-├── next.config.mjs           # Next.js config (API rewrites)
-├── vercel.json               # Vercel deployment config
-├── requirements.txt          # Python dependencies
-└── package.json              # Node dependencies
+│   │   ├── page.tsx               # Landing
+│   │   └── (dashboard)/           # /dashboard, /persistent-value, etc.
+│   ├── components/dashboard/     # Tables, charts, inputs
+│   └── lib/swr-provider.tsx       # SWR config
+├── scripts/                       # DB helpers (describe scores, check fundamentals)
+├── docs/                          # Procedures, DB, deploy
+├── CHECKPOINT_v1.2.0.md           # Rollback snapshot
+├── CHECKPOINTS.md
+├── README.md
+├── ARCHITECTURE.md                # This file
+├── TECH_STACK.md
+├── DATA_FLOW.md
+├── BUILDING_GUIDE.md
+├── vercel.json
+├── next.config.mjs
+├── requirements.txt
+└── package.json
 ```
 
 ---
@@ -86,70 +92,32 @@ jcn-tremor/
 
 **Purpose:** Routes `/api/*` requests to Python function (dev: local, prod: serverless).
 
-### 3. `api/index.py` (FastAPI Routes)
-```python
-app = FastAPI()
+### 3. `api/index.py` (FastAPI)
 
-@app.get("/api/health")      # → https://domain.com/api/health
-@app.get("/api/test")         # → https://domain.com/api/test
-@app.get("/api/db-test")      # → https://domain.com/api/db-test
-@app.post("/api/portfolio/performance")  # Main endpoint
-```
+All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 
-**Key:** Routes include `/api` prefix. Vercel strips `/api/index` mount point automatically.
+**Endpoints:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | API info + endpoint list |
+| GET | `/api/health` | Health; MOTHERDUCK_TOKEN check |
+| POST | `/api/portfolio/performance` | Performance (body: `holdings`) |
+| POST | `/api/portfolio/allocation` | Allocation (body: `portfolio`) |
+| POST | `/api/portfolio/fundamentals` | 5 scores (body: `symbols`) |
+| POST | `/api/benchmarks` | SPY comparison (body: `holdings`) |
+| POST | `/api/stock/prices` | Historical prices (body: `symbols`) |
 
 ---
 
-## 🔌 API Endpoints
+## API Endpoints (reference)
 
-### 1. Health Check
-**URL:** `/api/health`  
-**Method:** GET  
-**Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-02-15T23:26:52.140502",
-  "cache_size": 0
-}
-```
-
-### 2. Test Endpoint
-**URL:** `/api/test`  
-**Method:** GET  
-**Response:**
-```json
-{
-  "message": "Hello from FastAPI!",
-  "framework": "FastAPI",
-  "version": "2.0.0"
-}
-```
-
-### 3. Database Connection Test
-**URL:** `/api/db-test`  
-**Method:** GET  
-**Response (when token is set):**
-```json
-{
-  "status": "success",
-  "message": "MotherDuck Connected!",
-  "timestamp": "2026-02-15 23:30:00",
-  "motherduck_token_set": true
-}
-```
-
-### 4. Portfolio Performance (Main)
-**URL:** `/api/portfolio/performance`  
-**Method:** POST  
-**Body:**
-```json
-{
-  "symbols": ["AAPL", "GOOGL", "MSFT"],
-  "start_date": "2024-01-01",
-  "end_date": "2026-02-15"
-}
-```
+- **GET /api/health** – Returns `{ status, motherduck_configured, timestamp }`.
+- **POST /api/portfolio/performance** – Body: `{ holdings: [{ symbol, cost_basis, shares }] }`. Returns performance metrics from MotherDuck (24hr cache).
+- **POST /api/portfolio/allocation** – Same holdings shape. Returns company/category/sector/industry allocation for pie charts.
+- **POST /api/portfolio/fundamentals** – Body: `{ symbols: string[] }`. Returns `{ data: [{ symbol, value, growth, financial_strength, quality, momentum }], score_columns }` from PROD_OBQ_Scores + PROD_OBQ_Momentum_Scores.
+- **POST /api/benchmarks** – Body: holdings. Returns portfolio vs SPY daily change and alpha.
+- **POST /api/stock/prices** – Body: `{ symbols: string[] }`. Returns historical daily close for chart (MotherDuck PROD_EOD_survivorship).
 
 ---
 

@@ -4,7 +4,7 @@ Fetches historical daily closing prices from MotherDuck for normalized price com
 """
 
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from .cache_manager import get_cache_manager
 
@@ -14,7 +14,7 @@ class StockPricesRequest(BaseModel):
 
 class StockPricesResponse(BaseModel):
     """Response model for stock prices"""
-    data: Dict[str, List[Dict[str, any]]]  # {symbol: [{date, close}, ...]}
+    data: Dict[str, List[Dict[str, Any]]]  # {symbol: [{date, close}, ...]}
     start_date: str
     end_date: str
     symbols: List[str]

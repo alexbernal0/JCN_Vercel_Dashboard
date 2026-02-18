@@ -1,7 +1,8 @@
-# 🔄 Data Flow & Architecture Guide
+# Data Flow & Architecture Guide
 
-**Last Updated:** 2026-02-15  
-**For:** JCN Stock Scanner Dashboard
+**Last Updated:** February 18, 2026  
+**Current as of:** v1.2.0  
+**For:** JCN Financial Dashboard
 
 ---
 

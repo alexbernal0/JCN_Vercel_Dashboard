@@ -37,18 +37,21 @@ const benchmarksFetcher = async ([url, holdings]: [string, any[]]) => {
   return response.json();
 };
 
+// Stable key so SWR doesn't refetch on every parent re-render (holdings array ref changes)
+function benchmarksKey(holdings: BenchmarksProps['holdings']) {
+  if (!holdings?.length) return null;
+  const symbols = holdings.map(h => h.symbol).sort().join(',');
+  return ['/api/benchmarks?force_refresh=false', symbols] as const;
+}
+
 export default function Benchmarks({ holdings }: BenchmarksProps) {
-  // Use SWR for automatic caching and revalidation
+  const key = benchmarksKey(holdings);
   const { data, error, isLoading } = useSWR<BenchmarksData>(
-    holdings && holdings.length > 0 
-      ? ['/api/benchmarks?force_refresh=false', holdings]
-      : null, // Don't fetch if no holdings
-    benchmarksFetcher,
+    key,
+    key ? ([url]) => benchmarksFetcher([url, holdings!]) : null,
     {
-      // Keep data in cache and show it instantly on return
       revalidateOnMount: true,
-      dedupingInterval: 60000, // 60 seconds
-      // Don't revalidate automatically - only on manual refresh
+      dedupingInterval: 60000,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
     }

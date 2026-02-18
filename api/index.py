@@ -14,6 +14,17 @@ Architecture: FastAPI (Official Vercel Standard)
 """
 
 import os
+from pathlib import Path
+
+# Load .env and .env.local from project root (for local dev; Vercel injects env at runtime)
+try:
+    from dotenv import load_dotenv
+    _root = Path(__file__).resolve().parent.parent
+    load_dotenv(_root / ".env")
+    load_dotenv(_root / ".env.local")
+except Exception:
+    pass
+
 import logging
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +55,13 @@ from .stock_prices_module import (
     StockPricesRequest,
     StockPricesResponse,
     get_stock_prices
+)
+
+# Import portfolio fundamentals (scores) module
+from .portfolio_fundamentals import (
+    PortfolioFundamentalsRequest,
+    PortfolioFundamentalsResponse,
+    get_portfolio_fundamentals
 )
 
 # Configure logging
@@ -77,6 +95,7 @@ async def root():
         "endpoints": {
             "/api/portfolio/performance": "POST - Get portfolio performance data",
             "/api/portfolio/allocation": "POST - Get portfolio allocation for pie charts",
+            "/api/portfolio/fundamentals": "POST - Get portfolio fundamentals (OBQ + Momentum scores)",
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/stock/prices": "POST - Get historical stock prices for chart",
             "/api/health": "GET - Health check"
@@ -200,6 +219,22 @@ async def get_benchmarks(
     except Exception as e:
         logger.error(f"Error calculating benchmarks: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error calculating benchmarks: {str(e)}")
+
+
+@app.post("/api/portfolio/fundamentals", response_model=PortfolioFundamentalsResponse)
+async def get_portfolio_fundamentals_endpoint(request: PortfolioFundamentalsRequest):
+    """
+    Get latest OBQ and Momentum scores for portfolio symbols.
+    One row per symbol, one column per score (from PROD_OBQ_Scores and PROD_OBQ_Momentum_Scores).
+    """
+    try:
+        logger.info(f"Portfolio fundamentals request: {len(request.symbols)} symbols")
+        result = get_portfolio_fundamentals(request)
+        logger.info(f"Portfolio fundamentals: {len(result.data)} rows, {len(result.score_columns)} score columns")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching portfolio fundamentals: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/stock/prices", response_model=StockPricesResponse)

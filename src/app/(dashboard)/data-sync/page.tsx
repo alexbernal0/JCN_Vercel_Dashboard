@@ -5,63 +5,32 @@ import { StageCard, type StageConfig } from '@/components/dashboard/data-sync/St
 const stages: StageConfig[] = [
   {
     stageNum: 0,
-    title: 'Environment Check',
-    description: 'Verify MotherDuck connection, EODHD API key, and schema availability',
+    title: 'Health & Inventory',
+    description: 'Connectivity check, gap analysis, fundamentals coverage, last sync status',
     icon: '⚙️',
     hasDryRun: false,
+    apiEndpoint: '/api/sync/stage0',
   },
   {
     stageNum: 1,
-    title: 'Inventory & Gap Analysis',
-    description: 'Compare DEV vs PROD tables — row counts, date ranges, symbol coverage',
-    icon: '📋',
-    hasDryRun: true,
-    previousGatePassed: true,
-  },
-  {
-    stageNum: 2,
-    title: 'EODHD Download',
-    description: 'Incremental download from EODHD API into DEV tables with validation',
+    title: 'Ingest',
+    description: 'EODHD download (prices + ETFs + fundamentals) with inline validation per batch',
     icon: '⬇️',
     hasDryRun: true,
     previousGatePassed: true,
   },
   {
-    stageNum: 3,
-    title: 'Data Quality Checks',
-    description: '15-point validation: duplicates, nulls, date gaps, PIT compliance, price sanity',
-    icon: '🔍',
-    hasDryRun: true,
-    previousGatePassed: true,
-  },
-  {
-    stageNum: 4,
-    title: 'DEV → PROD Promotion',
-    description: 'Promote validated DEV data to PROD with score recalculation and verification',
+    stageNum: 2,
+    title: 'Validate & Promote',
+    description: 'Full data quality audit → DEV → PROD promotion → universe maintenance → score verification',
     icon: '🚀',
     hasDryRun: true,
     previousGatePassed: true,
   },
   {
-    stageNum: 5,
-    title: 'Symbol Universe Maintenance',
-    description: 'Update universe table — filter MF/OTC, update flags, mark delisted',
-    icon: '🌍',
-    hasDryRun: true,
-    previousGatePassed: true,
-  },
-  {
-    stageNum: 6,
-    title: 'ETF Sync',
-    description: 'Promote ETF data separately — verify no equity contamination',
-    icon: '📊',
-    hasDryRun: true,
-    previousGatePassed: true,
-  },
-  {
-    stageNum: 7,
-    title: 'Full Audit Report',
-    description: '9-section comprehensive audit — integrity, coverage, freshness, PIT, scoring',
+    stageNum: 3,
+    title: 'Audit & Report',
+    description: 'Final integrity report, cross-table consistency, self-healing recommendations',
     icon: '📝',
     hasDryRun: false,
     previousGatePassed: true,
@@ -78,12 +47,12 @@ export default function DataSyncPage() {
             🔄 Data Sync Pipeline
           </h1>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Mission-critical 8-stage data synchronization — EODHD → DEV → PROD with validation gates
+            Mission-critical 4-stage data synchronization — EODHD → DEV → PROD with validation gates
           </p>
           <div className="mt-4 flex items-center gap-4">
             <div className="flex items-center gap-2 rounded-lg bg-yellow-50 px-3 py-1.5 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
               <span>⚠️</span>
-              <span>Backend not connected — UI shell with simulated output</span>
+              <span>Stage 0 live — Stages 1-3 pending backend connection</span>
             </div>
           </div>
         </div>

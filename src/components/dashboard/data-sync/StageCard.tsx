@@ -19,6 +19,7 @@ export interface StageConfig {
   gateChecks?: GateCheck[]
   previousGatePassed?: boolean
   hasDryRun?: boolean
+  apiEndpoint?: string
 }
 
 interface StageCardProps {
@@ -34,6 +35,96 @@ const statusBadge: Record<StageStatus, { label: string; color: string }> = {
   gate_failed: { label: 'GATE FAILED', color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
 }
 
+function formatStage0Response(data: Record<string, unknown>, addLine: (text: string, type: ConsoleLine['type']) => void) {
+  const checks = data.checks as Record<string, Record<string, unknown>> | undefined
+  if (!checks) {
+    addLine('No check data returned', 'error')
+    return
+  }
+
+  for (const [name, check] of Object.entries(checks)) {
+    const status = check.status as string
+    const message = check.message as string
+    const latency = check.latency_ms as number | undefined
+    const icon = status === 'PASS' ? '✅' : status === 'WARN' ? '⚠️' : '❌'
+    const lineType: ConsoleLine['type'] = status === 'PASS' ? 'success' : status === 'WARN' ? 'warning' : 'error'
+    const latStr = latency ? ` (${latency}ms)` : ''
+    addLine(`${icon} [${name.toUpperCase()}] ${message}${latStr}`, lineType)
+
+    // Show detail for important checks
+    const detail = check.detail as Record<string, unknown> | null
+    if (detail) {
+      if (name === 'schemas_and_tables' && detail.row_counts) {
+        const counts = detail.row_counts as Record<string, number>
+        for (const [table, count] of Object.entries(counts)) {
+          const short = table.split('.').pop() || table
+          addLine(`   ${short}: ${Number(count).toLocaleString()} rows`, 'info')
+        }
+      }
+      if (name === 'fundamentals_coverage') {
+        const eod = (detail.eod_symbols as number)?.toLocaleString() || 'N/A'
+        const obq = (detail.obq_scores_symbols as number)?.toLocaleString() || 'N/A'
+        const mom = (detail.momentum_scores_symbols as number)?.toLocaleString() || 'N/A'
+        addLine(`   EOD symbols: ${eod}  |  OBQ scores: ${obq}  |  Momentum: ${mom}`, 'info')
+      }
+      if (name === 'symbol_format' && detail.violations) {
+        const violations = detail.violations as Record<string, string>
+        for (const [table, desc] of Object.entries(violations)) {
+          const short = table.split('.').pop() || table
+          addLine(`   ${short}: ${desc}`, 'warning')
+        }
+      }
+      if (name === 'data_gap') {
+        addLine(`   Latest: ${detail.latest_eod_date}  |  Today: ${detail.today}  |  Gap: ${detail.gap_days} day(s)`, 'info')
+      }
+    }
+  }
+
+  // Summary
+  addLine('', 'info')
+  addLine('='.repeat(72), 'divider')
+  const overall = data.overall_status as string
+  const canProceed = data.can_proceed as boolean
+  const overallType: ConsoleLine['type'] = overall === 'PASS' ? 'success' : overall === 'WARN' ? 'warning' : 'error'
+  addLine(`OVERALL: ${overall}  |  Can Proceed: ${canProceed ? 'YES' : 'NO'}`, overallType)
+
+  const blocking = data.blocking_issues as string[]
+  if (blocking && blocking.length > 0) {
+    addLine('', 'info')
+    addLine('BLOCKING ISSUES:', 'error')
+    blocking.forEach(issue => addLine(`  • ${issue}`, 'error'))
+  }
+
+  const heals = data.self_heal_actions as string[]
+  if (heals && heals.length > 0) {
+    addLine('', 'info')
+    addLine('SELF-HEAL ACTIONS:', 'warning')
+    heals.forEach(action => addLine(`  → ${action}`, 'warning'))
+  }
+  addLine('='.repeat(72), 'divider')
+}
+
+const stageMessages: Record<number, string[]> = {
+  1: [
+    'Querying DEV_EOD_survivorship...',
+    'Querying DEV_EOD_Fundamentals...',
+    'Calculating sync requirements...',
+    'Running data quality cross-checks...',
+  ],
+  2: [
+    'Checking EODHD rate limits...',
+    'Calculating incremental date range...',
+    'Downloading survivorship batch 1/N...',
+    'Validating batch...',
+  ],
+  3: [
+    'Section A: Table inventory...',
+    'Section B: Survivorship integrity...',
+    'Section C: Cross-table consistency...',
+    'Section D: Final scoring...',
+  ],
+}
+
 export function StageCard({ config }: StageCardProps) {
   const [status, setStatus] = useState<StageStatus>('idle')
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([])
@@ -45,7 +136,7 @@ export function StageCard({ config }: StageCardProps) {
     setConsoleLines(prev => [...prev, { text, type, timestamp: now }])
   }, [])
 
-  const simulateRun = useCallback(async () => {
+  const runStage = useCallback(async () => {
     if (isLocked) return
     setStatus('running')
     setShowConsole(true)
@@ -54,84 +145,55 @@ export function StageCard({ config }: StageCardProps) {
     addLine('='.repeat(72), 'divider')
     addLine(`STAGE ${config.stageNum}: ${config.title.toUpperCase()}`, 'header')
     addLine('='.repeat(72), 'divider')
-    addLine('')
+    addLine('', 'info')
 
-    // Simulated placeholder output per stage
-    const stageMessages: Record<number, string[]> = {
-      0: [
-        'Checking MotherDuck connection...',
-        'Checking EODHD API key...',
-        'Verifying DEV_EODHD_DATA schema...',
-        'Verifying PROD_EODHD schema...',
-      ],
-      1: [
-        'Querying DEV_EOD_survivorship...',
-        'Querying DEV_EOD_Fundamentals...',
-        'Querying DEV_EOD_ETFs...',
-        'Querying PROD tables...',
-        'Calculating sync requirements...',
-        'Running data quality cross-checks...',
-      ],
-      2: [
-        'Checking EODHD rate limits...',
-        'Calculating incremental date range...',
-        'Downloading survivorship batch 1/N...',
-        'Validating batch — symbol format, prices, duplicates...',
-        'Writing validated batch to DEV...',
-      ],
-      3: [
-        'Check 1: Duplicate detection...',
-        'Check 2: Metadata population...',
-        'Check 3: Date continuity...',
-        'Check 4: Negative price scan...',
-        'Check 5: PIT violation scan...',
-        'Running 10 more checks...',
-      ],
-      4: [
-        'Section A: DEV vs PROD gap analysis...',
-        'Section B: DEV → PROD promotion...',
-        'Section C: Score distribution validation...',
-        'Section D: Final verification + sync log...',
-      ],
-      5: [
-        'Auditing PROD_Symbol_Universe...',
-        'Filtering MF/OTC/warrants...',
-        'Updating has_fundamentals flags...',
-        'Updating price_row_count...',
-        'Updating is_active for delisted symbols...',
-      ],
-      6: [
-        'Analyzing DEV vs PROD ETF gap...',
-        'Promoting incremental ETF rows...',
-        'Verifying no equity contamination...',
-        'Writing sync log entry...',
-      ],
-      7: [
-        'Section A: Table inventory...',
-        'Section B: Survivorship integrity...',
-        'Section C: Fundamentals coverage...',
-        'Section D: Symbol universe quality...',
-        'Section E: Score completeness...',
-        'Section F: Data freshness...',
-        'Section G: Cross-table consistency...',
-        'Section H: PIT compliance...',
-        'Section I: Final scoring...',
-      ],
+    // If this stage has a real API endpoint, call it
+    if (config.apiEndpoint) {
+      try {
+        addLine('Connecting to backend...', 'info')
+        const resp = await fetch(config.apiEndpoint)
+        if (!resp.ok) {
+          addLine(`API Error: HTTP ${resp.status} ${resp.statusText}`, 'error')
+          setStatus('error')
+          return
+        }
+        const data = await resp.json()
+        addLine('', 'info')
+
+        // Format response based on stage
+        if (config.stageNum === 0) {
+          formatStage0Response(data, addLine)
+        }
+
+        // Set status based on response
+        const overall = data.overall_status as string | undefined
+        if (overall === 'FAIL') {
+          setStatus('error')
+        } else if (overall === 'WARN') {
+          setStatus('warning')
+        } else {
+          setStatus('success')
+        }
+      } catch (err) {
+        addLine(`Network error: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+        addLine('Check browser console for details', 'error')
+        setStatus('error')
+      }
+    } else {
+      // Simulated placeholder output for stages without backend
+      const messages = stageMessages[config.stageNum] || ['Running stage...']
+      for (const msg of messages) {
+        await new Promise(r => setTimeout(r, 300 + Math.random() * 200))
+        addLine(msg)
+      }
+      addLine('', 'info')
+      addLine('='.repeat(72), 'divider')
+      addLine(`⏳ Stage ${config.stageNum} is a placeholder — backend not yet connected`, 'warning')
+      addLine('Connect the FastAPI endpoint to enable live execution', 'warning')
+      addLine('='.repeat(72), 'divider')
+      setStatus('warning')
     }
-
-    const messages = stageMessages[config.stageNum] || ['Running stage...']
-    for (const msg of messages) {
-      await new Promise(r => setTimeout(r, 300 + Math.random() * 200))
-      addLine(msg)
-    }
-
-    addLine('')
-    addLine('='.repeat(72), 'divider')
-    addLine(`⏳ Stage ${config.stageNum} is a placeholder — backend not yet connected`, 'warning')
-    addLine('Connect the FastAPI endpoint to enable live execution', 'warning')
-    addLine('='.repeat(72), 'divider')
-    setStatus('warning')
-  }, [config.stageNum, config.title, addLine, isLocked])
+  }, [config.stageNum, config.title, config.apiEndpoint, addLine, isLocked])
 
   const badge = statusBadge[status]
 
@@ -163,7 +225,7 @@ export function StageCard({ config }: StageCardProps) {
         <div className="flex items-center gap-2">
           {config.hasDryRun && (
             <button
-              onClick={simulateRun}
+              onClick={runStage}
               disabled={status === 'running' || isLocked}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
             >
@@ -171,14 +233,13 @@ export function StageCard({ config }: StageCardProps) {
             </button>
           )}
           <button
-            onClick={simulateRun}
+            onClick={runStage}
             disabled={status === 'running' || isLocked}
             className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 ${
               status === 'running'
                 ? 'bg-gray-400 dark:bg-gray-600'
                 : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-            }`}
-          >
+            }`}>
             {status === 'running' ? '⏳ Running...' : isLocked ? '🔒 Locked' : '▶ Run'}
           </button>
           <button
@@ -190,7 +251,7 @@ export function StageCard({ config }: StageCardProps) {
         </div>
       </div>
 
-      {/* Gate checks (if previous stage has them) */}
+      {/* Gate checks */}
       {config.gateChecks && config.gateChecks.length > 0 && (
         <div className="border-b border-gray-100 px-6 py-3 dark:border-gray-900">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -223,4 +284,3 @@ export function StageCard({ config }: StageCardProps) {
     </div>
   )
 }
-

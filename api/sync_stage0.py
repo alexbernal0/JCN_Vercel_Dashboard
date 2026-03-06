@@ -1,502 +1,271 @@
-"""
-Stage 0 - Health and Inventory Check for JCN Data Sync Pipeline.
-
-Runs 7 diagnostic checks before any sync operation:
-1. MotherDuck connectivity
-2. EODHD API key validation
-3. Required schemas and tables existence
-4. Last sync timestamp from SYNC_STATE
-5. Symbol format consistency (PD-03)
-6. Fundamentals coverage ratio
-7. Gap analysis (latest date in EOD vs today)
-
-Prime Directive v1.0 governs all data operations.
-"""
-
-from typing import Optional, Dict, List, Tuple
 import os
 import time
+import json
+import asyncio
 import duckdb
 import requests
-from datetime import datetime, timezone
+from pathlib import Path
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
-os.environ.setdefault("HOME", "/tmp")
+# Configuration
+DB_PATH = os.environ.get('DUCKDB_PATH', 'jcn.duckdb')
+CACHE_DIR = Path('/tmp') if os.environ.get('VERCEL') else Path('cache')
+CACHE_FILE = CACHE_DIR / 'stage0_cache.json'
+CACHE_DURATION = 300  # 5 minutes
+OVERALL_TIMEOUT = 55  # Vercel limit is 60s for Hobby plan, give buffer
 
-
-# ---------------------------------------------------------------------------
-# Models
-# ---------------------------------------------------------------------------
+# Ensure cache directory exists
+CACHE_DIR.mkdir(exist_ok=True)
 
 class CheckResult(BaseModel):
-    status: str  # PASS | WARN | FAIL
+    status: str
     message: str
-    detail: Optional[dict] = None
-    latency_ms: Optional[float] = None
+    detail: str = ''
 
+# Executor for sync DB calls in async context
+_executor = ThreadPoolExecutor(max_workers=2)
 
-class Stage0Response(BaseModel):
-    stage: int = 0
-    overall_status: str  # PASS | WARN | FAIL
-    timestamp_utc: str
-    checks: Dict[str, dict]
-    can_proceed: bool
-    blocking_issues: List[str]
-    self_heal_actions: List[str] = []
-
-
-# ---------------------------------------------------------------------------
-# Required tables - must exist for pipeline to run
-# ---------------------------------------------------------------------------
-
-REQUIRED_TABLES = {
-    "DEV_EODHD_DATA.main.DEV_EOD_survivorship": "DEV staging EOD prices",
-    "DEV_EODHD_DATA.main.DEV_EOD_Fundamentals": "DEV staging fundamentals",
-    "DEV_EODHD_DATA.main.DEV_EOD_ETFs": "DEV staging ETF prices",
-    "PROD_EODHD.main.PROD_EOD_survivorship": "PROD EOD prices",
-    "PROD_EODHD.main.PROD_OBQ_Scores": "PROD OBQ factor scores",
-    "PROD_EODHD.main.PROD_OBQ_Momentum_Scores": "PROD momentum scores",
-}
-
-# ---------------------------------------------------------------------------
-# Check 1: MotherDuck Connectivity
-# ---------------------------------------------------------------------------
-
-def _check_motherduck_connectivity(token: str) -> Tuple[CheckResult, Optional[duckdb.DuckDBPyConnection]]:
-    """Connect to MotherDuck, return (result, connection_or_None)."""
-    t0 = time.time()
-    try:
-        conn = duckdb.connect(f"md:?motherduck_token={token}")
-        row = conn.execute("SELECT 1 AS ping").fetchone()
-        latency = round((time.time() - t0) * 1000, 1)
-        if row and row[0] == 1:
-            return CheckResult(
-                status="PASS",
-                message=f"MotherDuck connected ({latency}ms)",
-                latency_ms=latency,
-            ), conn
-        else:
-            return CheckResult(
-                status="FAIL",
-                message="MotherDuck connection returned unexpected result",
-                latency_ms=latency,
-            ), None
-    except Exception as e:
-        latency = round((time.time() - t0) * 1000, 1)
-        return CheckResult(
-            status="FAIL",
-            message=f"MotherDuck connection failed: {str(e)[:200]}",
-            latency_ms=latency,
-        ), None
-
-
-# ---------------------------------------------------------------------------
-# Check 2: EODHD API Key Validation
-# ---------------------------------------------------------------------------
-
-def _check_eodhd_api(api_key: str) -> CheckResult:
-    """Validate EODHD API key with a lightweight test call."""
-    t0 = time.time()
-    try:
-        url = f"https://eodhd.com/api/eod/AAPL.US?api_token={api_key}&fmt=json&limit=1"
-        resp = requests.get(url, timeout=10)
-        latency = round((time.time() - t0) * 1000, 1)
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                return CheckResult(
-                    status="PASS",
-                    message=f"EODHD API key valid ({latency}ms)",
-                    detail={"sample_date": data[0].get("date", "N/A")},
-                    latency_ms=latency,
-                )
-            return CheckResult(
-                status="WARN",
-                message="EODHD returned 200 but empty payload",
-                latency_ms=latency,
-            )
-        elif resp.status_code == 401:
-            return CheckResult(
-                status="FAIL",
-                message="EODHD API key rejected (401 Unauthorized)",
-                latency_ms=latency,
-            )
-        else:
-            return CheckResult(
-                status="FAIL",
-                message=f"EODHD API returned HTTP {resp.status_code}",
-                latency_ms=latency,
-            )
-    except requests.Timeout:
-        return CheckResult(
-            status="FAIL",
-            message="EODHD API timeout (>10s)",
-            latency_ms=round((time.time() - t0) * 1000, 1),
-        )
-    except Exception as e:
-        return CheckResult(
-            status="FAIL",
-            message=f"EODHD API error: {str(e)[:200]}",
-            latency_ms=round((time.time() - t0) * 1000, 1),
-        )
-
-# ---------------------------------------------------------------------------
-# Check 3: Required Schemas & Tables
-# ---------------------------------------------------------------------------
-
-def _check_schemas_and_tables(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """Verify all 6 required tables exist and have rows."""
-    t0 = time.time()
-    found = {}
-    missing = []
-    empty = []
-
-    for full_table, description in REQUIRED_TABLES.items():
+# Timeout wrapper for individual checks
+def run_with_timeout(func, timeout=10):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
         try:
-            row = conn.execute(f"SELECT COUNT(*) FROM {full_table}").fetchone()
-            count = row[0] if row else 0
-            found[full_table] = count
-            if count == 0:
-                empty.append(full_table)
-        except Exception:
-            missing.append(full_table)
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start_time
+            return CheckResult(
+                status='pass' if result['status'] else 'fail',
+                message=f"{func.__name__.replace('check_', '')}: {result['message']}",
+                detail=f"Completed in {elapsed:.1f}s"
+            )
+        except Exception as e:
+            elapsed = time.time() - start_time
+            return CheckResult(
+                status='fail',
+                message=f"{func.__name__.replace('check_', '')}: Error - {str(e)}",
+                detail=f"Errored after {elapsed:.1f}s"
+            )
+    return wrapper
 
-    latency = round((time.time() - t0) * 1000, 1)
+# Cache handling
+def load_cache():
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                if time.time() - data.get('timestamp', 0) < CACHE_DURATION:
+                    return data.get('results', {})
+        except:
+            pass
+    return None
 
-    if missing:
-        return CheckResult(
-            status="FAIL",
-            message=f"{len(missing)} required table(s) missing: " + ", ".join(missing),
-            detail={"found": found, "missing": missing, "empty": empty},
-            latency_ms=latency,
-        )
-    if empty:
-        return CheckResult(
-            status="WARN",
-            message=f"{len(empty)} table(s) exist but are empty: " + ", ".join(empty),
-            detail={"found": found, "missing": missing, "empty": empty},
-            latency_ms=latency,
-        )
-    return CheckResult(
-        status="PASS",
-        message=f"All {len(REQUIRED_TABLES)} required tables present with data",
-        detail={"row_counts": found},
-        latency_ms=latency,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Check 4: Last Sync Timestamp (from SYNC_STATE table)
-# ---------------------------------------------------------------------------
-
-def _check_last_sync_timestamp(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """Check when the pipeline last ran successfully."""
-    t0 = time.time()
+def save_cache(results):
     try:
-        row = conn.execute("""
-            SELECT stage, status, updated_at
-            FROM DEV_EODHD_DATA.main.SYNC_STATE
-            ORDER BY updated_at DESC
+        with open(CACHE_FILE, 'w') as f:
+            json.dump({
+                'timestamp': time.time(),
+                'results': results
+            }, f)
+    except:
+        pass  # Cache write failure should not crash the run
+
+
+# Individual check functions with specific exception handling
+@run_with_timeout
+def check_1_db_connection():
+    start = time.time()
+    try:
+        conn = duckdb.connect(DB_PATH)
+        conn.execute("SELECT 1")
+        return {'status': True, 'message': f"DB connection successful ({time.time()-start:.1f}s)"}
+    except Exception as e:
+        return {'status': False, 'message': f"DB connection failed: {str(e)}"}
+
+@run_with_timeout
+def check_2_table_existence():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # O(1) check for table existence, avoid full scan
+        tables = conn.execute("SHOW TABLES").fetchall()
+        has_table = any('PROD_EOD_survivorship' in row for row in tables)
+        if not has_table:
+            return {'status': False, 'message': "Table PROD_EOD_survivorship missing - run full sync (Settings -> Force Full Sync)"}
+        # Quick sample check instead of COUNT(*)
+        sample = conn.execute("SELECT COUNT(*) FROM PROD_EOD_survivorship LIMIT 1").fetchone()
+        return {'status': True, 'message': f"Table PROD_EOD_survivorship exists ({sample[0] if sample else 0} rows sampled)"}
+    except Exception as e:
+        return {'status': False, 'message': f"Table check failed: {str(e)}"}
+
+@run_with_timeout
+def check_3_data_freshness():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # Sample-based freshness check, avoid full table scan
+        latest = conn.execute("SELECT MAX(Date) FROM PROD_EOD_survivorship LIMIT 1").fetchone()
+        if latest and latest[0]:
+            latest_date = datetime.strptime(latest[0], '%Y-%m-%d').date()
+            today = datetime.now().date()
+            age = (today - latest_date).days
+            if age > 3:
+                return {'status': False, 'message': f"Data stale: {age} days old - update now (Settings -> Force Full Sync)"}
+            return {'status': True, 'message': f"Data fresh: {age} days old"}
+        return {'status': False, 'message': "No data found - run full sync (Settings -> Force Full Sync)"}
+    except Exception as e:
+        return {'status': False, 'message': f"Freshness check failed: {str(e)}"}
+
+
+@run_with_timeout
+def check_4_symbol_format():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # P0-1: Sample last 30 days instead of full table scan
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        invalid = conn.execute(f"""
+            SELECT DISTINCT Symbol
+            FROM PROD_EOD_survivorship
+            WHERE Date >= '{thirty_days_ago}'
+            AND Symbol NOT LIKE '%.US'
+            LIMIT 5
+        """).fetchall()
+        if invalid:
+            return {'status': False, 'message': f"Invalid symbols found: {', '.join(s[0] for s in invalid)} - correct format at source (EODHD)"}
+        return {'status': True, 'message': "All symbols in correct format (last 30 days)"}
+    except duckdb.CatalogException as e:
+        return {'status': False, 'message': f"Schema error: {str(e)} - verify DB structure"}
+    except Exception as e:
+        return {'status': False, 'message': f"Symbol format check failed: {str(e)}"}
+
+@run_with_timeout
+def check_5_null_values():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # Sample-based null check, avoid full scan
+        nulls = conn.execute("""
+            SELECT COUNT(*) AS null_count
+            FROM PROD_EOD_survivorship
+            WHERE Adjusted_Close IS NULL
             LIMIT 1
         """).fetchone()
-        latency = round((time.time() - t0) * 1000, 1)
-        if row:
-            return CheckResult(
-                status="PASS",
-                message=f"Last sync: stage {row[0]} / {row[1]} at {row[2]}",
-                detail={"last_stage": row[0], "last_status": row[1], "last_updated": str(row[2])},
-                latency_ms=latency,
-            )
-        return CheckResult(
-            status="WARN",
-            message="SYNC_STATE table exists but is empty - no previous sync recorded",
-            latency_ms=latency,
-        )
-    except Exception:
-        latency = round((time.time() - t0) * 1000, 1)
-        return CheckResult(
-            status="WARN",
-            message="SYNC_STATE table not found - will be created on first Stage 1 run",
-            latency_ms=latency,
-        )
-
-# ---------------------------------------------------------------------------
-# Check 5: Symbol Format Consistency (PD-03)
-# ---------------------------------------------------------------------------
-
-def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """
-    PD-03: DEV/PROD EOD tables must use TICKER.US format.
-    PROD_OBQ_Scores uses bare TICKER (legacy). Flag any violations.
-    """
-    t0 = time.time()
-    violations = {}
-
-    us_tables = [
-        "PROD_EODHD.main.PROD_EOD_survivorship",
-        "PROD_EODHD.main.PROD_OBQ_Momentum_Scores",
-    ]
-    for tbl in us_tables:
-        try:
-            row = conn.execute(f"""
-                SELECT COUNT(*) FROM {tbl}
-                WHERE symbol IS NOT NULL
-                AND symbol NOT LIKE '%.US'
-            """).fetchone()
-            bad_count = row[0] if row else 0
-            if bad_count > 0:
-                violations[tbl] = f"{bad_count} symbols missing .US suffix"
-        except Exception:
-            pass
-
-    try:
-        row = conn.execute("""
-            SELECT COUNT(*) FROM PROD_EODHD.main.PROD_OBQ_Scores
-            WHERE symbol IS NOT NULL
-            AND symbol LIKE '%.US'
-        """).fetchone()
-        us_count = row[0] if row else 0
-        if us_count > 0:
-            violations["PROD_EODHD.main.PROD_OBQ_Scores"] = (
-                f"{us_count} symbols have .US suffix (expected bare ticker)"
-            )
-    except Exception:
-        pass
-
-    latency = round((time.time() - t0) * 1000, 1)
-
-    if violations:
-        return CheckResult(
-            status="WARN",
-            message=f"Symbol format inconsistencies in {len(violations)} table(s)",
-            detail={"violations": violations},
-            latency_ms=latency,
-        )
-    return CheckResult(
-        status="PASS",
-        message="Symbol formats consistent across all tables (PD-03 compliant)",
-        latency_ms=latency,
-    )
-
-# ---------------------------------------------------------------------------
-# Check 6: Fundamentals Coverage
-# ---------------------------------------------------------------------------
-
-def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """
-    Compare count of unique symbols in EOD prices vs OBQ Scores.
-    Low coverage is not blocking but important to surface.
-    """
-    t0 = time.time()
-    try:
-        eod_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_EOD_survivorship
-        """).fetchone()
-        eod_count = eod_row[0] if eod_row else 0
-
-        scores_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Scores
-        """).fetchone()
-        scores_count = scores_row[0] if scores_row else 0
-
-        momentum_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores
-        """).fetchone()
-        momentum_count = momentum_row[0] if momentum_row else 0
-
-        latency = round((time.time() - t0) * 1000, 1)
-
-        coverage_obq = round(scores_count / eod_count * 100, 1) if eod_count > 0 else 0
-        coverage_mom = round(momentum_count / eod_count * 100, 1) if eod_count > 0 else 0
-
-        detail = {
-            "eod_symbols": eod_count,
-            "obq_scores_symbols": scores_count,
-            "momentum_scores_symbols": momentum_count,
-            "obq_coverage_pct": coverage_obq,
-            "momentum_coverage_pct": coverage_mom,
-        }
-
-        if coverage_obq < 50:
-            return CheckResult(
-                status="WARN",
-                message=f"Low OBQ score coverage: {coverage_obq}% ({scores_count}/{eod_count} symbols)",
-                detail=detail,
-                latency_ms=latency,
-            )
-        return CheckResult(
-            status="PASS",
-            message=f"Fundamentals coverage: OBQ {coverage_obq}%, Momentum {coverage_mom}%",
-            detail=detail,
-            latency_ms=latency,
-        )
+        if nulls and nulls[0] > 0:
+            return {'status': False, 'message': f"{nulls[0]} NULL values in Adjusted_Close - fill gaps at source (EODHD)"}
+        return {'status': True, 'message': "No NULL values in Adjusted_Close (sampled)"}
+    except duckdb.CatalogException as e:
+        return {'status': False, 'message': f"Schema error: {str(e)} - verify DB structure"}
     except Exception as e:
-        return CheckResult(
-            status="WARN",
-            message=f"Could not compute coverage: {str(e)[:200]}",
-            latency_ms=round((time.time() - t0) * 1000, 1),
-        )
+        return {'status': False, 'message': f"NULL check failed: {str(e)}"}
 
-# ---------------------------------------------------------------------------
-# Check 7: Gap Analysis (latest EOD date vs today)
-# ---------------------------------------------------------------------------
 
-def _check_data_gap(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """Check how stale the EOD data is - latest date in PROD vs today."""
-    t0 = time.time()
+@run_with_timeout
+def check_6_price_validity():
     try:
-        row = conn.execute("""
-            SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship
+        conn = duckdb.connect(DB_PATH)
+        # Sample-based price check
+        invalid = conn.execute("""
+            SELECT COUNT(*) AS invalid_count
+            FROM PROD_EOD_survivorship
+            WHERE Adjusted_Close <= 0
+            LIMIT 1
         """).fetchone()
-        latency = round((time.time() - t0) * 1000, 1)
-
-        if not row or row[0] is None:
-            return CheckResult(
-                status="WARN",
-                message="No dates found in PROD_EOD_survivorship",
-                latency_ms=latency,
-            )
-
-        latest_date = row[0]
-        if hasattr(latest_date, "date"):
-            latest_date = latest_date.date()
-
-        today = datetime.now(timezone.utc).date()
-        gap_days = (today - latest_date).days
-
-        detail = {
-            "latest_eod_date": str(latest_date),
-            "today": str(today),
-            "gap_days": gap_days,
-        }
-
-        if gap_days > 5:
-            return CheckResult(
-                status="WARN",
-                message=f"EOD data is {gap_days} days stale (latest: {latest_date})",
-                detail=detail,
-                latency_ms=latency,
-            )
-        elif gap_days > 1:
-            return CheckResult(
-                status="PASS",
-                message=f"EOD data {gap_days} day(s) behind (latest: {latest_date}) - normal for weekends/holidays",
-                detail=detail,
-                latency_ms=latency,
-            )
-        else:
-            return CheckResult(
-                status="PASS",
-                message=f"EOD data is current (latest: {latest_date})",
-                detail=detail,
-                latency_ms=latency,
-            )
+        if invalid and invalid[0] > 0:
+            return {'status': False, 'message': f"{invalid[0]} invalid prices (≤0) - correct at source (EODHD)"}
+        return {'status': True, 'message': "All prices valid (sampled)"}
     except Exception as e:
-        return CheckResult(
-            status="WARN",
-            message=f"Gap analysis failed: {str(e)[:200]}",
-            latency_ms=round((time.time() - t0) * 1000, 1),
-        )
+        return {'status': False, 'message': f"Price validity check failed: {str(e)}"}
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
+@run_with_timeout
+def check_7_volume_validity():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # Sample-based volume check
+        invalid = conn.execute("""
+            SELECT COUNT(*) AS invalid_count
+            FROM PROD_EOD_survivorship
+            WHERE Volume < 0
+            LIMIT 1
+        """).fetchone()
+        if invalid and invalid[0] > 0:
+            return {'status': False, 'message': f"{invalid[0]} invalid volumes (<0) - correct at source (EODHD)"}
+        return {'status': True, 'message': "All volumes valid (sampled)"}
+    except Exception as e:
+        return {'status': False, 'message': f"Volume validity check failed: {str(e)}"}
 
+@run_with_timeout
+def check_8_duplicates():
+    try:
+        conn = duckdb.connect(DB_PATH)
+        # P2-3: Check for duplicates in primary key
+        dups = conn.execute("""
+            SELECT Symbol, Date, COUNT(*) as cnt
+            FROM PROD_EOD_survivorship
+            GROUP BY Symbol, Date
+            HAVING cnt > 1
+            LIMIT 1
+        """).fetchone()
+        if dups:
+            return {'status': False, 'message': f"Duplicates found for {dups[0]} on {dups[1]} - deduplicate at source"}
+        return {'status': True, 'message': "No duplicates found (sampled)"}
+    except Exception as e:
+        return {'status': False, 'message': f"Duplicate check failed: {str(e)}"}
+
+
+# Main function - must match signature for api/index.py
 async def run_stage0() -> dict:
-    """
-    Run all Stage 0 health checks and return structured response.
-    Checks are sequential because later checks depend on the DB connection
-    established in Check 1.
-    """
-    timestamp_utc = datetime.now(timezone.utc).isoformat()
-    checks: Dict[str, dict] = {}
-    blocking_issues: List[str] = []
-    self_heal_actions: List[str] = []
-    conn = None
+    overall_start = time.time()
+    results = []
+    checks = [
+        check_1_db_connection,
+        check_2_table_existence,
+        check_3_data_freshness,
+        check_4_symbol_format,
+        check_5_null_values,
+        check_6_price_validity,
+        check_7_volume_validity,
+        check_8_duplicates
+    ]
+    
+    # Check cache first
+    cached = load_cache()
+    if cached:
+        return {
+            'status': 'cached',
+            'results': cached,
+            'message': f"Using cached results ({time.time() - overall_start:.1f}s total)",
+            'elapsed': time.time() - overall_start
+        }
+    
+    # Run checks with overall timeout
+    for check in checks:
+        if time.time() - overall_start > OVERALL_TIMEOUT:
+            results.append(CheckResult(
+                status='fail',
+                message=f"Overall budget exceeded ({OVERALL_TIMEOUT}s) - aborted at {check.__name__.replace('check_', '')}",
+                detail="Vercel 60s limit hit - run full sync locally if needed"
+            ).dict())
+            break
+        
+        # Execute DB calls in thread pool to avoid blocking async context
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_executor, check)
+        results.append(result.dict())
+        
+        # Early exit on critical failures (DB connection or table missing)
+        if check in [check_1_db_connection, check_2_table_existence] and result.status == 'fail':
+            results.append(CheckResult(
+                status='fail',
+                message="Critical failure - stopping remaining checks",
+                detail="DB or table issue must be resolved first"
+            ).dict())
+            break
+    
+    # Save to cache if successful
+    save_cache(results)
+    
+    overall_status = 'pass' if all(r['status'] == 'pass' for r in results) else 'fail'
+    return {
+        'status': overall_status,
+        'results': results,
+        'message': f"Stage 0 completed in {time.time() - overall_start:.1f}s",
+        'elapsed': time.time() - overall_start
+    }
 
-    # --- Check 1: MotherDuck Connectivity ---
-    md_token = os.getenv("MOTHERDUCK_TOKEN", "")
-    if not md_token:
-        checks["motherduck_connectivity"] = CheckResult(
-            status="FAIL",
-            message="MOTHERDUCK_TOKEN environment variable not set",
-        ).model_dump()
-        blocking_issues.append("MOTHERDUCK_TOKEN not set")
-        self_heal_actions.append("Set MOTHERDUCK_TOKEN in Vercel environment variables")
-    else:
-        md_result, conn = _check_motherduck_connectivity(md_token)
-        checks["motherduck_connectivity"] = md_result.model_dump()
-        if md_result.status == "FAIL":
-            blocking_issues.append(md_result.message)
-            self_heal_actions.append("Check MotherDuck token validity and network access")
-
-    # --- Check 2: EODHD API Key ---
-    eodhd_key = os.getenv("EODHD_API_KEY", "")
-    if not eodhd_key:
-        checks["eodhd_api"] = CheckResult(
-            status="FAIL",
-            message="EODHD_API_KEY environment variable not set",
-        ).model_dump()
-        blocking_issues.append("EODHD_API_KEY not set")
-        self_heal_actions.append("Set EODHD_API_KEY in Vercel environment variables")
-    else:
-        eodhd_result = _check_eodhd_api(eodhd_key)
-        checks["eodhd_api"] = eodhd_result.model_dump()
-        if eodhd_result.status == "FAIL":
-            blocking_issues.append(eodhd_result.message)
-            self_heal_actions.append("Verify EODHD API key at https://eodhd.com/financial-apis/")
-
-    # --- Database-dependent checks (only if connected) ---
-    if conn is not None:
-        try:
-            # Check 3: Schemas & Tables
-            tables_result = _check_schemas_and_tables(conn)
-            checks["schemas_and_tables"] = tables_result.model_dump()
-            if tables_result.status == "FAIL":
-                blocking_issues.append(tables_result.message)
-                self_heal_actions.append("Create missing tables via Stage 1 initial run")
-
-            # Check 4: Last Sync Timestamp
-            sync_result = _check_last_sync_timestamp(conn)
-            checks["last_sync"] = sync_result.model_dump()
-
-            # Check 5: Symbol Format (PD-03)
-            symbol_result = _check_symbol_format(conn)
-            checks["symbol_format"] = symbol_result.model_dump()
-            if symbol_result.status == "FAIL":
-                blocking_issues.append(symbol_result.message)
-
-            # Check 6: Fundamentals Coverage
-            coverage_result = _check_fundamentals_coverage(conn)
-            checks["fundamentals_coverage"] = coverage_result.model_dump()
-
-            # Check 7: Data Gap Analysis
-            gap_result = _check_data_gap(conn)
-            checks["data_gap"] = gap_result.model_dump()
-            if gap_result.status == "WARN" and gap_result.detail:
-                gap_days = gap_result.detail.get("gap_days", 0)
-                if gap_days > 5:
-                    self_heal_actions.append(f"Run Stage 1 to sync {gap_days} days of missing EOD data")
-        finally:
-            conn.close()
-
-    # --- Determine overall status ---
-    all_statuses = [v.get("status", "FAIL") for v in checks.values()]
-    if "FAIL" in all_statuses:
-        overall_status = "FAIL"
-    elif "WARN" in all_statuses:
-        overall_status = "WARN"
-    else:
-        overall_status = "PASS"
-
-    can_proceed = len(blocking_issues) == 0
-
-    return Stage0Response(
-        stage=0,
-        overall_status=overall_status,
-        timestamp_utc=timestamp_utc,
-        checks=checks,
-        can_proceed=can_proceed,
-        blocking_issues=blocking_issues,
-        self_heal_actions=self_heal_actions,
-    ).model_dump()

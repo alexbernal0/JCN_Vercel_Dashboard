@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { SyncConsole, type ConsoleLine } from './SyncConsole'
+import type { Stage0Response } from '../../../types/stage0'
 
 export type StageStatus = 'idle' | 'running' | 'success' | 'warning' | 'error' | 'gate_failed'
 
@@ -35,8 +36,14 @@ const statusBadge: Record<StageStatus, { label: string; color: string }> = {
   gate_failed: { label: 'GATE FAILED', color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
 }
 
-function formatStage0Response(data: Record<string, unknown>, addLine: (text: string, type: ConsoleLine['type']) => void) {
-  const checks = data.checks as Record<string, Record<string, unknown>> | undefined
+function formatStage0Response(data: Stage0Response, addLine: (text: string, type: ConsoleLine['type']) => void) {
+  // Show cache indicator
+  if (data.cached) {
+    addLine('📋 Results from cache (< 5 min old)', 'info')
+    addLine('', 'info')
+  }
+
+  const checks = data.checks
   if (!checks) {
     addLine('No check data returned', 'error')
     return
@@ -55,10 +62,11 @@ function formatStage0Response(data: Record<string, unknown>, addLine: (text: str
     const detail = check.detail as Record<string, unknown> | null
     if (detail) {
       if (name === 'schemas_and_tables' && detail.row_counts) {
-        const counts = detail.row_counts as Record<string, number>
+        const counts = detail.row_counts as Record<string, string | number>
         for (const [table, count] of Object.entries(counts)) {
           const short = table.split('.').pop() || table
-          addLine(`   ${short}: ${Number(count).toLocaleString()} rows`, 'info')
+          const display = typeof count === 'number' ? Number(count).toLocaleString() + ' rows' : String(count)
+          addLine(`   ${short}: ${display}`, 'info')
         }
       }
       if (name === 'fundamentals_coverage') {
@@ -77,25 +85,32 @@ function formatStage0Response(data: Record<string, unknown>, addLine: (text: str
       if (name === 'data_gap') {
         addLine(`   Latest: ${detail.latest_eod_date}  |  Today: ${detail.today}  |  Gap: ${detail.gap_days} day(s)`, 'info')
       }
+      if (name === 'duplicate_detection' && detail.scan_window) {
+        addLine(`   Scan window: ${detail.scan_window}`, 'info')
+      }
+      if (name === 'symbol_format' && detail.sample_window) {
+        addLine(`   Sample window: ${detail.sample_window}`, 'info')
+      }
     }
   }
 
   // Summary
   addLine('', 'info')
   addLine('='.repeat(72), 'divider')
-  const overall = data.overall_status as string
-  const canProceed = data.can_proceed as boolean
+  const overall = data.overall_status
+  const canProceed = data.can_proceed
   const overallType: ConsoleLine['type'] = overall === 'PASS' ? 'success' : overall === 'WARN' ? 'warning' : 'error'
-  addLine(`OVERALL: ${overall}  |  Can Proceed: ${canProceed ? 'YES' : 'NO'}`, overallType)
+  const execMs = data.execution_ms ? ` (${data.execution_ms}ms)` : ''
+  addLine(`OVERALL: ${overall}  |  Can Proceed: ${canProceed ? 'YES' : 'NO'}${execMs}`, overallType)
 
-  const blocking = data.blocking_issues as string[]
+  const blocking = data.blocking_issues
   if (blocking && blocking.length > 0) {
     addLine('', 'info')
     addLine('BLOCKING ISSUES:', 'error')
     blocking.forEach(issue => addLine(`  • ${issue}`, 'error'))
   }
 
-  const heals = data.self_heal_actions as string[]
+  const heals = data.self_heal_actions
   if (heals && heals.length > 0) {
     addLine('', 'info')
     addLine('SELF-HEAL ACTIONS:', 'warning')

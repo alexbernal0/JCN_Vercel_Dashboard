@@ -71,6 +71,9 @@ from .portfolio_trends_data import (
     get_portfolio_trends_data
 )
 
+# Import data sync Stage 0 module
+from .sync_stage0 import run_stage0
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -106,7 +109,8 @@ async def root():
             "/api/portfolio/trends-data": "POST - Get weekly OHLC for portfolio trends charts",
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/stock/prices": "POST - Get historical stock prices for chart",
-            "/api/health": "GET - Health check"
+            "/api/health": "GET - Health check",
+            "/api/sync/stage0": "GET - Data sync Stage 0 health checks"
         }
     }
 
@@ -285,6 +289,22 @@ async def get_historical_stock_prices(request: StockPricesRequest):
     except Exception as e:
         logger.error(f"Error fetching stock prices: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching stock prices: {str(e)}")
+
+
+
+
+@app.get("/api/sync/stage0")
+async def sync_stage0():
+    """
+    Run Stage 0 health and inventory checks for the data sync pipeline.
+    Returns structured JSON with check results, blocking issues, and self-heal actions.
+    """
+    try:
+        result = await run_stage0()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync stage 0: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stage 0 health check failed: {str(e)}")
 
 
 # Vercel serverless function handler

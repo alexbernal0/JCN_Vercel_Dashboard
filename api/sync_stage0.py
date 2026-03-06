@@ -1,14 +1,19 @@
 """
 Stage 0 - Health and Inventory Check for JCN Data Sync Pipeline.
 
-Runs 7 diagnostic checks before any sync operation:
+Runs 8 diagnostic checks before any sync operation:
 1. MotherDuck connectivity
 2. EODHD API key validation
-3. Required schemas and tables existence
+3. Required schemas and tables existence (with estimated row counts)
 4. Last sync timestamp from SYNC_STATE
-5. Symbol format consistency (PD-03)
+5. Symbol format consistency (PD-03) - 30-day sample window
 6. Fundamentals coverage ratio
 7. Gap analysis (latest date in EOD vs today)
+8. Duplicate detection (date+symbol in last 7 days)
+
+Oracle-hardened: P0-1 sampled queries, P0-2 LIMIT 1 + estimated counts,
+P1-1 per-check timeouts, P1-2 CatalogException handling, P1-3 5-min cache,
+P1-4 async run_in_executor, P2-2 actionable self-heal URLs, P2-3 duplicates.
 
 Prime Directive v1.0 governs all data operations.
 """
@@ -16,12 +21,29 @@ Prime Directive v1.0 governs all data operations.
 from typing import Optional, Dict, List, Tuple
 import os
 import time
+import json
+import asyncio
 import duckdb
 import requests
-from datetime import datetime, timezone
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
 os.environ.setdefault("HOME", "/tmp")
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+CACHE_DIR = Path("/tmp")
+CACHE_FILE = CACHE_DIR / "jcn_stage0_cache.json"
+CACHE_TTL_SECONDS = 300  # 5 minutes
+OVERALL_BUDGET_SECONDS = 55  # Vercel 60s limit minus buffer
+CHECK_TIMEOUT_SECONDS = 12.0  # Per-check timeout
+
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +65,8 @@ class Stage0Response(BaseModel):
     can_proceed: bool
     blocking_issues: List[str]
     self_heal_actions: List[str] = []
+    cached: bool = False
+    execution_ms: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +81,61 @@ REQUIRED_TABLES = {
     "PROD_EODHD.main.PROD_OBQ_Scores": "PROD OBQ factor scores",
     "PROD_EODHD.main.PROD_OBQ_Momentum_Scores": "PROD momentum scores",
 }
+
+VERCEL_ENV_URL = "https://vercel.com/obsidianquantitative/jcn-tremor/settings/environment-variables"
+EODHD_DASHBOARD_URL = "https://eodhd.com/financial-apis/api-screener"
+
+
+# ---------------------------------------------------------------------------
+# Cache helpers (P1-3)
+# ---------------------------------------------------------------------------
+
+def _get_cached_result():
+    """Return cached Stage 0 result if fresh (< 5 min), else None."""
+    try:
+        if not CACHE_FILE.exists():
+            return None
+        data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        cached_at = data.get("cached_at", 0)
+        if time.time() - cached_at < CACHE_TTL_SECONDS:
+            result = data.get("result")
+            if result:
+                result["cached"] = True
+                return result
+    except Exception:
+        pass
+    return None
+
+
+def _save_to_cache(result):
+    """Save Stage 0 result to file cache."""
+    try:
+        payload = {"cached_at": time.time(), "result": result}
+        CACHE_FILE.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception:
+        pass  # Cache write failure is non-blocking
+
+
+# ---------------------------------------------------------------------------
+# Timeout wrapper (P1-1 + P1-4)
+# ---------------------------------------------------------------------------
+
+async def _run_check_with_timeout(fn, *args, timeout_s=CHECK_TIMEOUT_SECONDS):
+    """Run a synchronous check function in thread pool with timeout."""
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_executor, fn, *args),
+            timeout=timeout_s,
+        )
+        return result
+    except asyncio.TimeoutError:
+        return CheckResult(
+            status="FAIL",
+            message=f"{fn.__name__} timed out after {timeout_s}s",
+            latency_ms=round(timeout_s * 1000, 1),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Check 1: MotherDuck Connectivity
@@ -144,8 +223,8 @@ def _check_eodhd_api(api_key: str) -> CheckResult:
 # Check 3: Required Schemas & Tables
 # ---------------------------------------------------------------------------
 
-def _check_schemas_and_tables(conn: duckdb.DuckDBPyConnection) -> CheckResult:
-    """Verify all 6 required tables exist and have rows."""
+def _check_schemas_and_tables(conn):
+    """Verify all 6 required tables exist. LIMIT 1 for existence, COUNT for row counts."""
     t0 = time.time()
     found = {}
     missing = []
@@ -153,11 +232,19 @@ def _check_schemas_and_tables(conn: duckdb.DuckDBPyConnection) -> CheckResult:
 
     for full_table, description in REQUIRED_TABLES.items():
         try:
-            row = conn.execute(f"SELECT COUNT(*) FROM {full_table}").fetchone()
-            count = row[0] if row else 0
-            found[full_table] = count
-            if count == 0:
+            # Fast existence check (P0-2)
+            row = conn.execute(f"SELECT 1 FROM {full_table} LIMIT 1").fetchone()
+            if row is None:
                 empty.append(full_table)
+                found[full_table] = 0
+            else:
+                try:
+                    cnt_row = conn.execute(f"SELECT COUNT(*) FROM {full_table}").fetchone()
+                    found[full_table] = cnt_row[0] if cnt_row else "exists"
+                except Exception:
+                    found[full_table] = "exists"
+        except duckdb.CatalogException:
+            missing.append(full_table)
         except Exception:
             missing.append(full_table)
 
@@ -183,6 +270,7 @@ def _check_schemas_and_tables(conn: duckdb.DuckDBPyConnection) -> CheckResult:
         detail={"row_counts": found},
         latency_ms=latency,
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +300,7 @@ def _check_last_sync_timestamp(conn: duckdb.DuckDBPyConnection) -> CheckResult:
             message="SYNC_STATE table exists but is empty - no previous sync recorded",
             latency_ms=latency,
         )
-    except Exception:
+    except duckdb.CatalogException:
         latency = round((time.time() - t0) * 1000, 1)
         return CheckResult(
             status="WARN",
@@ -220,6 +308,13 @@ def _check_last_sync_timestamp(conn: duckdb.DuckDBPyConnection) -> CheckResult:
             latency_ms=latency,
         )
 
+    except Exception:
+        latency = round((time.time() - t0) * 1000, 1)
+        return CheckResult(
+            status="WARN",
+            message="SYNC_STATE table not found - will be created on first Stage 1 run",
+            latency_ms=latency,
+        )
 # ---------------------------------------------------------------------------
 # Check 5: Symbol Format Consistency (PD-03)
 # ---------------------------------------------------------------------------
@@ -231,6 +326,7 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
     """
     t0 = time.time()
     violations = {}
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
 
     us_tables = [
         "PROD_EODHD.main.PROD_EOD_survivorship",
@@ -240,12 +336,15 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
         try:
             row = conn.execute(f"""
                 SELECT COUNT(*) FROM {tbl}
-                WHERE symbol IS NOT NULL
+                WHERE date >= '{thirty_days_ago}'
+                AND symbol IS NOT NULL
                 AND symbol NOT LIKE '%.US'
             """).fetchone()
             bad_count = row[0] if row else 0
             if bad_count > 0:
                 violations[tbl] = f"{bad_count} symbols missing .US suffix"
+        except duckdb.CatalogException:
+            violations[tbl] = "table not found"
         except Exception:
             pass
 
@@ -260,6 +359,8 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
             violations["PROD_EODHD.main.PROD_OBQ_Scores"] = (
                 f"{us_count} symbols have .US suffix (expected bare ticker)"
             )
+    except duckdb.CatalogException:
+        violations["PROD_EODHD.main.PROD_OBQ_Scores"] = "table not found"
     except Exception:
         pass
 
@@ -269,12 +370,13 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
         return CheckResult(
             status="WARN",
             message=f"Symbol format inconsistencies in {len(violations)} table(s)",
-            detail={"violations": violations},
+            detail={"violations": violations, "sample_window": f"last 30 days (since {thirty_days_ago})"},
             latency_ms=latency,
         )
     return CheckResult(
         status="PASS",
         message="Symbol formats consistent across all tables (PD-03 compliant)",
+        detail={"sample_window": f"last 30 days (since {thirty_days_ago})"},
         latency_ms=latency,
     )
 
@@ -399,15 +501,63 @@ def _check_data_gap(conn: duckdb.DuckDBPyConnection) -> CheckResult:
         )
 
 # ---------------------------------------------------------------------------
+# Check 8: Duplicate Detection (P2-3)
+# ---------------------------------------------------------------------------
+
+def _check_duplicates(conn):
+    """Scan last 7 days for duplicate (date, symbol) pairs in PROD EOD."""
+    t0 = time.time()
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    try:
+        row = conn.execute(f"""
+            SELECT COUNT(*) FROM (
+                SELECT date, symbol, COUNT(*) AS cnt
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE date >= '{seven_days_ago}'
+                GROUP BY date, symbol
+                HAVING cnt > 1
+            )
+        """).fetchone()
+        latency = round((time.time() - t0) * 1000, 1)
+        dup_count = row[0] if row else 0
+        if dup_count > 0:
+            return CheckResult(
+                status="WARN",
+                message=f"{dup_count} duplicate (date,symbol) pairs in last 7 days",
+                detail={"duplicate_count": dup_count, "scan_window": "7 days"},
+                latency_ms=latency,
+            )
+        return CheckResult(
+            status="PASS",
+            message="No duplicates in last 7 days",
+            detail={"scan_window": "7 days"},
+            latency_ms=latency,
+        )
+    except Exception as e:
+        return CheckResult(
+            status="WARN",
+            message=f"Duplicate check failed: {str(e)[:200]}",
+            latency_ms=round((time.time() - t0) * 1000, 1),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
 async def run_stage0() -> dict:
     """
     Run all Stage 0 health checks and return structured response.
-    Checks are sequential because later checks depend on the DB connection
-    established in Check 1.
+    P1-3: Returns cached result if fresh (< 5 min).
+    P1-1/P1-4: All DB checks run in thread pool with per-check timeout.
     """
+    overall_start = time.time()
+
+    # --- P1-3: Check cache first ---
+    cached_result = _get_cached_result()
+    if cached_result is not None:
+        return cached_result
+
     timestamp_utc = datetime.now(timezone.utc).isoformat()
     checks: Dict[str, dict] = {}
     blocking_issues: List[str] = []
@@ -422,13 +572,17 @@ async def run_stage0() -> dict:
             message="MOTHERDUCK_TOKEN environment variable not set",
         ).model_dump()
         blocking_issues.append("MOTHERDUCK_TOKEN not set")
-        self_heal_actions.append("Set MOTHERDUCK_TOKEN in Vercel environment variables")
+        self_heal_actions.append(
+            f"Set MOTHERDUCK_TOKEN in Vercel env vars -> {VERCEL_ENV_URL}"
+        )
     else:
         md_result, conn = _check_motherduck_connectivity(md_token)
         checks["motherduck_connectivity"] = md_result.model_dump()
         if md_result.status == "FAIL":
             blocking_issues.append(md_result.message)
-            self_heal_actions.append("Check MotherDuck token validity and network access")
+            self_heal_actions.append(
+                "Check MotherDuck token at https://app.motherduck.com/"
+            )
 
     # --- Check 2: EODHD API Key ---
     eodhd_key = os.getenv("EODHD_API_KEY", "")
@@ -438,45 +592,87 @@ async def run_stage0() -> dict:
             message="EODHD_API_KEY environment variable not set",
         ).model_dump()
         blocking_issues.append("EODHD_API_KEY not set")
-        self_heal_actions.append("Set EODHD_API_KEY in Vercel environment variables")
+        self_heal_actions.append(
+            f"Set EODHD_API_KEY in Vercel env vars -> {VERCEL_ENV_URL}"
+        )
     else:
         eodhd_result = _check_eodhd_api(eodhd_key)
         checks["eodhd_api"] = eodhd_result.model_dump()
         if eodhd_result.status == "FAIL":
             blocking_issues.append(eodhd_result.message)
-            self_heal_actions.append("Verify EODHD API key at https://eodhd.com/financial-apis/")
+            self_heal_actions.append(
+                f"Verify EODHD API key -> {EODHD_DASHBOARD_URL}"
+            )
 
     # --- Database-dependent checks (only if connected) ---
     if conn is not None:
         try:
-            # Check 3: Schemas & Tables
-            tables_result = _check_schemas_and_tables(conn)
-            checks["schemas_and_tables"] = tables_result.model_dump()
-            if tables_result.status == "FAIL":
-                blocking_issues.append(tables_result.message)
-                self_heal_actions.append("Create missing tables via Stage 1 initial run")
+            def _budget_remaining():
+                return OVERALL_BUDGET_SECONDS - (time.time() - overall_start)
+
+            # Check 3: Schemas & Tables (P0-2)
+            if _budget_remaining() > 0:
+                tables_result = await _run_check_with_timeout(
+                    _check_schemas_and_tables, conn, timeout_s=15.0
+                )
+                checks["schemas_and_tables"] = tables_result.model_dump()
+                if tables_result.status == "FAIL":
+                    blocking_issues.append(tables_result.message)
+                    self_heal_actions.append(
+                        "Create missing tables via Stage 1 -> /data-sync"
+                    )
 
             # Check 4: Last Sync Timestamp
-            sync_result = _check_last_sync_timestamp(conn)
-            checks["last_sync"] = sync_result.model_dump()
+            if _budget_remaining() > 0:
+                sync_result = await _run_check_with_timeout(
+                    _check_last_sync_timestamp, conn
+                )
+                checks["last_sync"] = sync_result.model_dump()
 
-            # Check 5: Symbol Format (PD-03)
-            symbol_result = _check_symbol_format(conn)
-            checks["symbol_format"] = symbol_result.model_dump()
-            if symbol_result.status == "FAIL":
-                blocking_issues.append(symbol_result.message)
+            # Check 5: Symbol Format (PD-03, P0-1: 30-day sample)
+            if _budget_remaining() > 0:
+                symbol_result = await _run_check_with_timeout(
+                    _check_symbol_format, conn
+                )
+                checks["symbol_format"] = symbol_result.model_dump()
+                if symbol_result.status == "FAIL":
+                    blocking_issues.append(symbol_result.message)
 
             # Check 6: Fundamentals Coverage
-            coverage_result = _check_fundamentals_coverage(conn)
-            checks["fundamentals_coverage"] = coverage_result.model_dump()
+            if _budget_remaining() > 0:
+                coverage_result = await _run_check_with_timeout(
+                    _check_fundamentals_coverage, conn
+                )
+                checks["fundamentals_coverage"] = coverage_result.model_dump()
 
             # Check 7: Data Gap Analysis
-            gap_result = _check_data_gap(conn)
-            checks["data_gap"] = gap_result.model_dump()
-            if gap_result.status == "WARN" and gap_result.detail:
-                gap_days = gap_result.detail.get("gap_days", 0)
-                if gap_days > 5:
-                    self_heal_actions.append(f"Run Stage 1 to sync {gap_days} days of missing EOD data")
+            if _budget_remaining() > 0:
+                gap_result = await _run_check_with_timeout(
+                    _check_data_gap, conn
+                )
+                checks["data_gap"] = gap_result.model_dump()
+                if gap_result.status == "WARN" and gap_result.detail:
+                    gap_days = gap_result.detail.get("gap_days", 0)
+                    if gap_days > 5:
+                        self_heal_actions.append(
+                            f"Run Stage 1 to sync {gap_days} days -> /data-sync"
+                        )
+
+            # Check 8: Duplicate Detection (P2-3)
+            if _budget_remaining() > 0:
+                dup_result = await _run_check_with_timeout(
+                    _check_duplicates, conn
+                )
+                checks["duplicate_detection"] = dup_result.model_dump()
+
+            # Budget exhaustion warning
+            if _budget_remaining() <= 0:
+                checks["budget_warning"] = CheckResult(
+                    status="WARN",
+                    message=f"Time budget exhausted ({OVERALL_BUDGET_SECONDS}s) - some checks skipped",
+                    latency_ms=round((time.time() - overall_start) * 1000, 1),
+                ).model_dump()
+
         finally:
             conn.close()
 
@@ -490,8 +686,9 @@ async def run_stage0() -> dict:
         overall_status = "PASS"
 
     can_proceed = len(blocking_issues) == 0
+    execution_ms = round((time.time() - overall_start) * 1000, 1)
 
-    return Stage0Response(
+    result = Stage0Response(
         stage=0,
         overall_status=overall_status,
         timestamp_utc=timestamp_utc,
@@ -499,4 +696,11 @@ async def run_stage0() -> dict:
         can_proceed=can_proceed,
         blocking_issues=blocking_issues,
         self_heal_actions=self_heal_actions,
+        cached=False,
+        execution_ms=execution_ms,
     ).model_dump()
+
+    # --- P1-3: Save to cache ---
+    _save_to_cache(result)
+
+    return result

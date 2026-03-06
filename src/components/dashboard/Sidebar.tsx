@@ -22,6 +22,7 @@ const navigation = [
       { name: 'Stock Analysis', href: '/stock-analysis', icon: '📈' },
       { name: 'Market Analysis', href: '/market-analysis', icon: '🌍' },
       { name: 'Risk Management', href: '/risk-management', icon: '🛡️' },
+      { name: 'Data Sync', href: '/data-sync', icon: '🔄' },
     ]
   },
   { name: 'About', href: '/about', icon: 'ℹ️' },

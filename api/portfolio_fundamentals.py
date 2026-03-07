@@ -1,7 +1,8 @@
 """
 Portfolio Fundamentals (Scores) API
-Fetches latest OBQ and Momentum scores from MotherDuck for portfolio symbols.
-Tables: PROD_EODHD.main.PROD_OBQ_Scores, PROD_EODHD.main.PROD_OBQ_Momentum_Scores
+Fetches latest OBQ factor scores and Momentum scores from MotherDuck for portfolio symbols.
+Tables: PROD_OBQ_Value_Scores, PROD_OBQ_Quality_Scores, PROD_OBQ_FinStr_Scores,
+        PROD_OBQ_Growth_Scores, PROD_OBQ_Momentum_Scores (all in PROD_EODHD.main)
 """
 
 import os
@@ -50,11 +51,13 @@ def _is_date_column(name: str) -> bool:
 # Exactly 5 score columns returned to frontend (latest value per stock)
 SCORE_KEYS = ["value", "growth", "financial_strength", "quality", "momentum"]
 
-# Map API keys to source columns (OBQ_Scores and Momentum table)
-OBQ_VALUE_COLUMNS = ["value_universe_score", "value_historical_score", "value_sector_score"]
-OBQ_GROWTH_COLUMN = "growth_score"
-OBQ_FS_COLUMN = "fs_score"
-OBQ_QUALITY_COLUMN = "quality_score"
+# Map API keys to new score tables (Stage 2.5 recalculated scores)
+NEW_SCORE_TABLES = {
+    "value": ("PROD_EODHD.main.PROD_OBQ_Value_Scores", "value_score_composite"),
+    "quality": ("PROD_EODHD.main.PROD_OBQ_Quality_Scores", "quality_score_composite"),
+    "financial_strength": ("PROD_EODHD.main.PROD_OBQ_FinStr_Scores", "finstr_score_composite"),
+    "growth": ("PROD_EODHD.main.PROD_OBQ_Growth_Scores", "growth_score_composite"),
+}
 MOMENTUM_SCORE_COLUMN = "obq_momentum_score"
 MOMENTUM_FALLBACK_COLUMN = "systemscore"  # use when obq_momentum_score is null for latest week
 
@@ -115,8 +118,8 @@ def _get_latest_per_symbol(
 
 def get_portfolio_fundamentals(request: PortfolioFundamentalsRequest) -> PortfolioFundamentalsResponse:
     """
-    Fetch latest score for each symbol from PROD_OBQ_Scores and PROD_OBQ_Momentum_Scores.
-    Returns one row per symbol and one column per score (merged from both tables).
+    Fetch latest composite score per symbol from 4 new score tables + momentum.
+    Returns one row per symbol and one column per score (merged from all tables).
     """
     symbols = [s for s in request.symbols if (s and isinstance(s, str))]
     if not symbols:
@@ -162,32 +165,27 @@ def get_portfolio_fundamentals(request: PortfolioFundamentalsRequest) -> Portfol
     merged: Dict[str, Dict[str, Any]] = {_normalize_symbol(s): {"symbol": _normalize_symbol(s)} for s in symbols}
 
     try:
-        # 1) PROD_OBQ_Scores – account for .US or no .US in DB
-        try:
-            q_obq = f"""
-            SELECT * FROM PROD_EODHD.main.PROD_OBQ_Scores
-            WHERE symbol IN ('{symbols_in_clause}')
-            """
-            cur = conn.execute(q_obq)
-            names_obq = [d[0] for d in cur.description]
-            rows_obq = cur.fetchall()
-            latest_obq = _get_latest_per_symbol(rows_obq, names_obq)
-            for sym, row in latest_obq.items():
-                if sym not in merged:
-                    merged[sym] = {"symbol": sym}
-                # Value: first available of value_universe, value_historical, value_sector
-                for col in OBQ_VALUE_COLUMNS:
-                    if col in row and row[col] is not None:
-                        merged[sym]["value"] = row[col]
-                        break
-                if OBQ_GROWTH_COLUMN in row:
-                    merged[sym]["growth"] = row[OBQ_GROWTH_COLUMN]
-                if OBQ_FS_COLUMN in row:
-                    merged[sym]["financial_strength"] = row[OBQ_FS_COLUMN]
-                if OBQ_QUALITY_COLUMN in row:
-                    merged[sym]["quality"] = row[OBQ_QUALITY_COLUMN]
-        except Exception as e:
-            logger.warning("PROD_OBQ_Scores query failed: %s", e)
+        # 1) New score tables (Stage 2.5 recalculated) - one query per score
+        for score_key, (table_name, col_name) in NEW_SCORE_TABLES.items():
+            try:
+                q = f"""
+                SELECT symbol, {col_name}
+                FROM {table_name}
+                WHERE symbol IN ('{symbols_in_clause}')
+                  AND month_date = (SELECT MAX(month_date) FROM {table_name})
+                """
+                cur = conn.execute(q)
+                rows = cur.fetchall()
+                for row in rows:
+                    sym_raw = (row[0] or "").replace(".US", "").strip().upper()
+                    if not sym_raw:
+                        continue
+                    if sym_raw not in merged:
+                        merged[sym_raw] = {"symbol": sym_raw}
+                    if row[1] is not None:
+                        merged[sym_raw][score_key] = round(float(row[1]), 2)
+            except Exception as e:
+                logger.warning("%s query failed: %s", table_name, e)
 
         # 2) PROD_OBQ_Momentum_Scores – account for .US or no .US in DB; prefer obq_momentum_score, fallback systemscore
         try:

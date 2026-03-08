@@ -1,6 +1,7 @@
 """
 Portfolio Fundamentals (Scores) API
-Fetches latest OBQ factor scores and Momentum scores from MotherDuck for portfolio symbols.
+Fetches latest OBQ factor scores from MotherDuck for portfolio symbols.
+All 5 scores (Value, Quality, Growth, FinStr, Momentum) read from Stage 2.5 tables.
 Tables: PROD_OBQ_Value_Scores, PROD_OBQ_Quality_Scores, PROD_OBQ_FinStr_Scores,
         PROD_OBQ_Growth_Scores, PROD_OBQ_Momentum_Scores (all in PROD_EODHD.main)
 """
@@ -39,86 +40,22 @@ def _add_us_suffix(symbol: str) -> str:
     return symbol.upper()
 
 
-def _is_date_column(name: str) -> bool:
-    n = (name or "").lower()
-    return n in (
-        "date", "as_of_date", "report_date", "updated_at", "asof",
-        "month_date", "week_end_date", "calculation_date",
-        "fundamental_quarter_date", "fundamental_filing_date", "fs_filing_date",
-    )
-
-
 # Exactly 5 score columns returned to frontend (latest value per stock)
 SCORE_KEYS = ["value", "growth", "financial_strength", "quality", "momentum"]
 
-# Map API keys to new score tables (Stage 2.5 recalculated scores)
+# Map API keys to Stage 2.5 recalculated score tables (all 5 scores)
 NEW_SCORE_TABLES = {
     "value": ("PROD_EODHD.main.PROD_OBQ_Value_Scores", "value_score_composite"),
     "quality": ("PROD_EODHD.main.PROD_OBQ_Quality_Scores", "quality_score_composite"),
     "financial_strength": ("PROD_EODHD.main.PROD_OBQ_FinStr_Scores", "finstr_score_composite"),
     "growth": ("PROD_EODHD.main.PROD_OBQ_Growth_Scores", "growth_score_composite"),
+    "momentum": ("PROD_EODHD.main.PROD_OBQ_Momentum_Scores", "momentum_score_composite"),
 }
-MOMENTUM_SCORE_COLUMN = "obq_momentum_score"
-MOMENTUM_FALLBACK_COLUMN = "systemscore"  # use when obq_momentum_score is null for latest week
-
-
-def _get_latest_per_symbol(
-    rows: List[tuple],
-    column_names: List[str],
-    symbol_col: str = "symbol",
-) -> Dict[str, Dict[str, Any]]:
-    """Group rows by symbol and keep the latest row per symbol (by date column)."""
-    date_col = None
-    for i, c in enumerate(column_names):
-        if _is_date_column(c):
-            date_col = (i, c)
-            break
-    if not date_col:
-        date_col = (1, "date")  # assume second column is date if no match
-
-    date_idx = date_col[0]
-    try:
-        symbol_idx = column_names.index(symbol_col)
-    except ValueError:
-        symbol_idx = 0
-
-    by_symbol: Dict[str, Dict[str, Any]] = {}
-    for row in rows:
-        if symbol_idx >= len(row):
-            continue
-        sym_raw = row[symbol_idx]
-        symbol = (sym_raw or "").replace(".US", "").strip().upper()
-        if not symbol:
-            continue
-        key = symbol
-        date_val = row[date_idx] if date_idx < len(row) else None
-        if key not in by_symbol:
-            by_symbol[key] = (date_val, row)
-            continue
-        prev_date, _ = by_symbol[key]
-        # keep row with larger date (more recent)
-        if date_val is not None and (prev_date is None or date_val > prev_date):
-            by_symbol[key] = (date_val, row)
-
-    out = {}
-    for symbol, (_, row) in by_symbol.items():
-        out[symbol] = {}
-        for i, col in enumerate(column_names):
-            if i < len(row):
-                val = row[i]
-                if col.lower() in ("symbol",) or _is_date_column(col):
-                    if col.lower() == "symbol":
-                        out[symbol][col] = symbol
-                    continue
-                if hasattr(val, "isoformat"):
-                    val = val.isoformat()[:10]
-                out[symbol][col] = val
-    return out
 
 
 def get_portfolio_fundamentals(request: PortfolioFundamentalsRequest) -> PortfolioFundamentalsResponse:
     """
-    Fetch latest composite score per symbol from 4 new score tables + momentum.
+    Fetch latest composite score per symbol from all 5 Stage 2.5 score tables.
     Returns one row per symbol and one column per score (merged from all tables).
     """
     symbols = [s for s in request.symbols if (s and isinstance(s, str))]
@@ -165,7 +102,7 @@ def get_portfolio_fundamentals(request: PortfolioFundamentalsRequest) -> Portfol
     merged: Dict[str, Dict[str, Any]] = {_normalize_symbol(s): {"symbol": _normalize_symbol(s)} for s in symbols}
 
     try:
-        # 1) New score tables (Stage 2.5 recalculated) - one query per score
+        # All 5 scores from Stage 2.5 recalculated tables - one query per score
         for score_key, (table_name, col_name) in NEW_SCORE_TABLES.items():
             try:
                 q = f"""
@@ -186,27 +123,6 @@ def get_portfolio_fundamentals(request: PortfolioFundamentalsRequest) -> Portfol
                         merged[sym_raw][score_key] = round(float(row[1]), 2)
             except Exception as e:
                 logger.warning("%s query failed: %s", table_name, e)
-
-        # 2) PROD_OBQ_Momentum_Scores – account for .US or no .US in DB; prefer obq_momentum_score, fallback systemscore
-        try:
-            q_mom = f"""
-            SELECT * FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores
-            WHERE symbol IN ('{symbols_in_clause}')
-            """
-            cur = conn.execute(q_mom)
-            names_mom = [d[0] for d in cur.description]
-            rows_mom = cur.fetchall()
-            latest_mom = _get_latest_per_symbol(rows_mom, names_mom)
-            for sym, row in latest_mom.items():
-                if sym not in merged:
-                    merged[sym] = {"symbol": sym}
-                momentum_val = row.get(MOMENTUM_SCORE_COLUMN)
-                if momentum_val is not None:
-                    merged[sym]["momentum"] = momentum_val
-                elif row.get(MOMENTUM_FALLBACK_COLUMN) is not None:
-                    merged[sym]["momentum"] = row[MOMENTUM_FALLBACK_COLUMN]
-        except Exception as e:
-            logger.warning("PROD_OBQ_Momentum_Scores query failed: %s", e)
 
         conn.close()
     except Exception as e:

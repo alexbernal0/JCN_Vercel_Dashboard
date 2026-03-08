@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join("C:", os.sep, "Users", "admin", "Desktop", "OBQ_AI", "AI_Hedge_Fund_Local", ".env"))
 MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
 PRICE_TABLE = "PROD_EODHD.main.PROD_EOD_survivorship"
+WEEKLY_TABLE = "PROD_EODHD.main.PROD_EOD_survivorship_Weekly"
 SCORE_SCHEMA = "PROD_EODHD.main"
 MOMENTUM_TABLE = f"{SCORE_SCHEMA}.PROD_OBQ_Momentum_Scores"
 MIN_SECTOR_PEERS = 3
@@ -398,26 +399,29 @@ def build_momentum_sql(md_str):
         FROM fip_computed
     ),
     sys_prices AS (
-        SELECT mp.symbol, mp.rn,
-               LN(mp.adjusted_close) AS log_price,
-               (1260.0 - mp.rn) AS x
-        FROM month_prices mp
-        JOIN active_symbols a ON a.symbol = mp.symbol
-        WHERE mp.rn <= 1260 AND mp.adjusted_close > 0
+        SELECT REPLACE(wp.symbol, '.US', '') AS symbol,
+               ROW_NUMBER() OVER (PARTITION BY REPLACE(wp.symbol, '.US', '') ORDER BY wp.week_end_date DESC) AS rn,
+               LN(wp.adjusted_close) AS log_price
+        FROM {WEEKLY_TABLE} wp
+        WHERE wp.week_end_date <= DATE '{md_str}'
+          AND wp.week_end_date >= DATE '{md_str}' - INTERVAL '2000' DAY
+          AND wp.adjusted_close > 0 AND wp.adjusted_close IS NOT NULL
     ),
     sys_stats AS (
-        SELECT symbol,
+        SELECT sp.symbol,
                COUNT(*) AS n,
-               MAX(CASE WHEN rn = 1 THEN EXP(log_price) END) AS end_price,
-               MAX(CASE WHEN rn = 1260 THEN EXP(log_price) END) AS start_price_5yr,
-               SUM(x) AS sum_x,
-               SUM(x * x) AS sum_x2,
-               SUM(log_price) AS sum_y,
-               SUM(log_price * log_price) AS sum_y2,
-               SUM(x * log_price) AS sum_xy
-        FROM sys_prices
-        GROUP BY symbol
-        HAVING COUNT(*) >= 1260
+               MAX(CASE WHEN sp.rn = 1 THEN EXP(sp.log_price) END) AS end_price,
+               MAX(CASE WHEN sp.rn = 260 THEN EXP(sp.log_price) END) AS start_price_5yr,
+               SUM((260.0 - sp.rn)) AS sum_x,
+               SUM((260.0 - sp.rn) * (260.0 - sp.rn)) AS sum_x2,
+               SUM(sp.log_price) AS sum_y,
+               SUM(sp.log_price * sp.log_price) AS sum_y2,
+               SUM((260.0 - sp.rn) * sp.log_price) AS sum_xy
+        FROM sys_prices sp
+        JOIN active_symbols a ON a.symbol = sp.symbol
+        WHERE sp.rn <= 260
+        GROUP BY sp.symbol
+        HAVING COUNT(*) >= 260
     ),
     sys_final AS (
         SELECT symbol,

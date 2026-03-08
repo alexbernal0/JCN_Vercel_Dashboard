@@ -77,9 +77,15 @@ REQUIRED_TABLES = {
     "DEV_EODHD_DATA.main.DEV_EOD_survivorship": "DEV staging EOD prices",
     "DEV_EODHD_DATA.main.DEV_EOD_Fundamentals": "DEV staging fundamentals",
     "DEV_EODHD_DATA.main.DEV_EOD_ETFs": "DEV staging ETF prices",
-    "PROD_EODHD.main.PROD_EOD_survivorship": "PROD EOD prices",
-    "PROD_EODHD.main.PROD_OBQ_Scores": "PROD OBQ factor scores",
-    "PROD_EODHD.main.PROD_OBQ_Momentum_Scores": "PROD momentum scores",
+    "PROD_EODHD.main.PROD_EOD_survivorship": "PROD EOD daily prices",
+    "PROD_EODHD.main.PROD_EOD_survivorship_Weekly": "PROD EOD weekly prices",
+    "PROD_EODHD.main.PROD_EOD_ETFs": "PROD ETF prices",
+    "PROD_EODHD.main.PROD_OBQ_Value_Scores": "PROD Value scores",
+    "PROD_EODHD.main.PROD_OBQ_Quality_Scores": "PROD Quality scores",
+    "PROD_EODHD.main.PROD_OBQ_FinStr_Scores": "PROD Financial Strength scores",
+    "PROD_EODHD.main.PROD_OBQ_Growth_Scores": "PROD Growth scores",
+    "PROD_EODHD.main.PROD_OBQ_Momentum_Scores": "PROD Momentum scores",
+    "PROD_EODHD.main.PROD_SYNC_LOG": "PROD sync audit log",
 }
 
 VERCEL_ENV_URL = "https://vercel.com/obsidianquantitative/jcn-tremor/settings/environment-variables"
@@ -322,7 +328,7 @@ def _check_last_sync_timestamp(conn: duckdb.DuckDBPyConnection) -> CheckResult:
 def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
     """
     PD-03: DEV/PROD EOD tables must use TICKER.US format.
-    PROD_OBQ_Scores uses bare TICKER (legacy). Flag any violations.
+    All score tables use TICKER.US format.
     """
     t0 = time.time()
     violations = {}
@@ -348,21 +354,7 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
         except Exception:
             pass
 
-    try:
-        row = conn.execute("""
-            SELECT COUNT(*) FROM PROD_EODHD.main.PROD_OBQ_Scores
-            WHERE symbol IS NOT NULL
-            AND symbol LIKE '%.US'
-        """).fetchone()
-        us_count = row[0] if row else 0
-        if us_count > 0:
-            violations["PROD_EODHD.main.PROD_OBQ_Scores"] = (
-                f"{us_count} symbols have .US suffix (expected bare ticker)"
-            )
-    except duckdb.CatalogException:
-        violations["PROD_EODHD.main.PROD_OBQ_Scores"] = "table not found"
-    except Exception:
-        pass
+    # All score tables now use .US format, no legacy bare ticker check needed
 
     latency = round((time.time() - t0) * 1000, 1)
 
@@ -397,7 +389,7 @@ def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult
         eod_count = eod_row[0] if eod_row else 0
 
         scores_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Scores
+            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores
         """).fetchone()
         scores_count = scores_row[0] if scores_row else 0
 

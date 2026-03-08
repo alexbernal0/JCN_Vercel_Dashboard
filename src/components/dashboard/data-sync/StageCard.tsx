@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { SyncConsole, type ConsoleLine } from './SyncConsole'
 import type { Stage0Response } from '../../../types/stage0'
 
@@ -21,6 +21,11 @@ export interface StageConfig {
   previousGatePassed?: boolean
   hasDryRun?: boolean
   apiEndpoint?: string
+}
+
+export interface StageCardHandle {
+  run: () => Promise<StageStatus>
+  getStatus: () => StageStatus
 }
 
 interface StageCardProps {
@@ -140,7 +145,7 @@ const stageMessages: Record<number, string[]> = {
   ],
 }
 
-export function StageCard({ config }: StageCardProps) {
+export const StageCard = forwardRef<StageCardHandle, StageCardProps>(function StageCard({ config }, ref) {
   const [status, setStatus] = useState<StageStatus>('idle')
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([])
   const [showConsole, setShowConsole] = useState(false)
@@ -151,11 +156,12 @@ export function StageCard({ config }: StageCardProps) {
     setConsoleLines(prev => [...prev, { text, type, timestamp: now }])
   }, [])
 
-  const runStage = useCallback(async () => {
-    if (isLocked) return
+  const runStage = useCallback(async (): Promise<StageStatus> => {
+    if (isLocked) return 'idle'
     setStatus('running')
     setShowConsole(true)
     setConsoleLines([])
+    let finalStatus: StageStatus = 'idle'
 
     addLine('='.repeat(72), 'divider')
     addLine(`STAGE ${config.stageNum}: ${config.title.toUpperCase()}`, 'header')
@@ -169,8 +175,9 @@ export function StageCard({ config }: StageCardProps) {
         const resp = await fetch(config.apiEndpoint)
         if (!resp.ok) {
           addLine(`API Error: HTTP ${resp.status} ${resp.statusText}`, 'error')
-          setStatus('error')
-          return
+          finalStatus = 'error'
+          setStatus(finalStatus)
+          return finalStatus
         }
         const data = await resp.json()
         addLine('', 'info')
@@ -183,16 +190,18 @@ export function StageCard({ config }: StageCardProps) {
         // Set status based on response
   const overall = data.overall_status
         if (overall === 'FAIL') {
-          setStatus('error')
+          finalStatus = 'error'
         } else if (overall === 'WARN') {
-          setStatus('warning')
+          finalStatus = 'warning'
         } else {
-          setStatus('success')
+          finalStatus = 'success'
         }
+        setStatus(finalStatus)
       } catch (err) {
         addLine(`Network error: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
         addLine('Check browser console for details', 'error')
-        setStatus('error')
+        finalStatus = 'error'
+        setStatus(finalStatus)
       }
     } else {
       // Simulated placeholder output for stages without backend
@@ -206,9 +215,17 @@ export function StageCard({ config }: StageCardProps) {
       addLine(`⏳ Stage ${config.stageNum} is a placeholder — backend not yet connected`, 'warning')
       addLine('Connect the FastAPI endpoint to enable live execution', 'warning')
       addLine('='.repeat(72), 'divider')
-      setStatus('warning')
+      finalStatus = 'warning'
+      setStatus(finalStatus)
     }
+
+    return finalStatus
   }, [config.stageNum, config.title, config.apiEndpoint, addLine, isLocked])
+
+  useImperativeHandle(ref, () => ({
+    run: runStage,
+    getStatus: () => status,
+  }), [runStage, status])
 
   const badge = statusBadge[status]
 
@@ -298,4 +315,4 @@ export function StageCard({ config }: StageCardProps) {
       )}
     </div>
   )
-}
+})

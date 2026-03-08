@@ -235,6 +235,20 @@ def _check_schemas_and_tables(conn):
     found = {}
     missing = []
     empty = []
+    freshness = {}
+
+    # Date column mapping for freshness check
+    _date_cols = {
+        "survivorship_Weekly": "week_end_date",
+        "Fundamentals": "as_of_filing_date",
+        "SYNC_LOG": "sync_date",
+        "Value_Scores": "month_date",
+        "Quality_Scores": "month_date",
+        "FinStr_Scores": "month_date",
+        "Growth_Scores": "month_date",
+        "Momentum_Scores": "month_date",
+    }
+    _skip_freshness = {"Symbol_Universe", "Sector_Index", "SCORE_CALC", "Norgate", "symbol_tracking"}
 
     for full_table, description in REQUIRED_TABLES.items():
         try:
@@ -249,6 +263,19 @@ def _check_schemas_and_tables(conn):
                     found[full_table] = cnt_row[0] if cnt_row else "exists"
                 except Exception:
                     found[full_table] = "exists"
+                # Freshness: get latest date for this table
+                short = full_table.split(".")[-1]
+                if not any(skip in short for skip in _skip_freshness):
+                    date_col = "date"
+                    for key, col in _date_cols.items():
+                        if key in short:
+                            date_col = col
+                            break
+                    try:
+                        dt_row = conn.execute(f"SELECT MAX({date_col}) FROM {full_table}").fetchone()
+                        freshness[full_table] = str(dt_row[0]) if dt_row and dt_row[0] else None
+                    except Exception:
+                        freshness[full_table] = None
         except duckdb.CatalogException:
             missing.append(full_table)
         except Exception:
@@ -260,20 +287,20 @@ def _check_schemas_and_tables(conn):
         return CheckResult(
             status="FAIL",
             message=f"{len(missing)} required table(s) missing: " + ", ".join(missing),
-            detail={"found": found, "missing": missing, "empty": empty},
+            detail={"found": found, "missing": missing, "empty": empty, "freshness": freshness},
             latency_ms=latency,
         )
     if empty:
         return CheckResult(
             status="WARN",
             message=f"{len(empty)} table(s) exist but are empty: " + ", ".join(empty),
-            detail={"found": found, "missing": missing, "empty": empty},
+            detail={"found": found, "missing": missing, "empty": empty, "freshness": freshness},
             latency_ms=latency,
         )
     return CheckResult(
         status="PASS",
         message=f"All {len(REQUIRED_TABLES)} required tables present with data",
-        detail={"row_counts": found},
+        detail={"found": found, "missing": [], "empty": [], "freshness": freshness},
         latency_ms=latency,
     )
 
@@ -388,15 +415,24 @@ def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult
         """).fetchone()
         eod_count = eod_row[0] if eod_row else 0
 
-        scores_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores
-        """).fetchone()
-        scores_count = scores_row[0] if scores_row else 0
+        # Per-score-table symbol counts
+        score_tables_map = {
+            "value": "PROD_EODHD.main.PROD_OBQ_Value_Scores",
+            "quality": "PROD_EODHD.main.PROD_OBQ_Quality_Scores",
+            "finstr": "PROD_EODHD.main.PROD_OBQ_FinStr_Scores",
+            "growth": "PROD_EODHD.main.PROD_OBQ_Growth_Scores",
+            "momentum": "PROD_EODHD.main.PROD_OBQ_Momentum_Scores",
+        }
+        score_symbol_counts = {}
+        for key, tbl in score_tables_map.items():
+            try:
+                r = conn.execute(f"SELECT COUNT(DISTINCT symbol) FROM {tbl}").fetchone()
+                score_symbol_counts[key] = r[0] if r else 0
+            except Exception:
+                score_symbol_counts[key] = 0
 
-        momentum_row = conn.execute("""
-            SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores
-        """).fetchone()
-        momentum_count = momentum_row[0] if momentum_row else 0
+        scores_count = score_symbol_counts.get("value", 0)
+        momentum_count = score_symbol_counts.get("momentum", 0)
 
         latency = round((time.time() - t0) * 1000, 1)
 
@@ -409,6 +445,7 @@ def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult
             "momentum_scores_symbols": momentum_count,
             "obq_coverage_pct": coverage_obq,
             "momentum_coverage_pct": coverage_mom,
+            "per_score": score_symbol_counts,
         }
 
         if coverage_obq < 50:

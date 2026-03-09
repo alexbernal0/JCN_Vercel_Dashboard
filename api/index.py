@@ -78,6 +78,20 @@ from .sync_stage3 import run_stage3
 # Import live prices module
 from .live_prices import LivePricesResponse, fetch_live_prices
 
+# Import stock search module
+from .stock_search import (
+    StockSearchResponse,
+    UniverseCheckResponse,
+    search_stocks,
+    check_universe,
+)
+
+# Import stock analysis module
+from .stock_analysis import (
+    StockAnalysisResponse,
+    get_stock_analysis,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -118,7 +132,10 @@ async def root():
             "/api/sync/stage0": "GET - Data sync Stage 0 health checks",
             "/api/sync/stage1": "GET - Data sync Stage 1 ingest (EODHD -> DEV)",
             "/api/sync/stage2": "GET - Data sync Stage 2 validate and promote (DEV -> PROD)",
-            "/api/sync/stage3": "GET - Data sync Stage 3 audit and report"
+            "/api/sync/stage3": "GET - Data sync Stage 3 audit and report",
+            "/api/stock/search": "GET - Search stocks in investable universe (autocomplete)",
+            "/api/stock/universe-check": "GET - Check if symbol is in investable universe",
+            "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)"
         }
     }
 
@@ -320,6 +337,59 @@ async def get_live_prices(symbols: str = ""):
     except Exception as e:
         logger.error(f"Error fetching live prices: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching live prices: {str(e)}")
+
+
+@app.get("/api/stock/search", response_model=StockSearchResponse)
+async def stock_search(q: str = Query("", description="Search query (ticker or company name)")):
+    """
+    Search for stocks in the investable universe (top 1500 by market cap).
+    Returns up to 10 matching results sorted by relevance and market cap.
+    Used for autocomplete in the Stock Analysis search bar.
+    """
+    try:
+        logger.info(f"Stock search: q={q}")
+        result = search_stocks(q, limit=10)
+        logger.info(f"Stock search results: {len(result.results)} matches for '{q}'")
+        return result
+    except Exception as e:
+        logger.error(f"Error in stock search: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stock search failed: {str(e)}")
+
+
+@app.get("/api/stock/universe-check", response_model=UniverseCheckResponse)
+async def stock_universe_check(symbol: str = Query("", description="Stock symbol to check")):
+    """
+    Check if a symbol is in the investable universe (top 1500 by market cap).
+    Returns in_universe=True/False with a user-friendly message.
+    """
+    try:
+        logger.info(f"Universe check: symbol={symbol}")
+        result = check_universe(symbol)
+        return result
+    except Exception as e:
+        logger.error(f"Error in universe check: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Universe check failed: {str(e)}")
+
+
+@app.get("/api/stock/analysis", response_model=StockAnalysisResponse)
+async def stock_analysis(symbol: str = Query("", description="Stock symbol to analyze")):
+    """
+    Get complete fundamental analysis for a single stock.
+    Returns all 10 modules of data: header, price history, per-share data,
+    quality metrics, financial statements, growth rates, valuation, and quality scores.
+    """
+    try:
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Symbol parameter required")
+        logger.info(f"Stock analysis request: {symbol}")
+        result = get_stock_analysis(symbol)
+        logger.info(f"Stock analysis complete: {result.symbol} ({result.company_name})")
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error in stock analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stock analysis failed: {str(e)}")
 
 
 @app.get("/api/sync/stage0")

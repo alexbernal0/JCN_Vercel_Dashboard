@@ -3,6 +3,7 @@
 import { useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { SyncConsole, type ConsoleLine } from './SyncConsole'
 import type { Stage0Response } from '../../../types/stage0'
+import { formatStage1Response, formatStage2Response, formatStage3Response } from './stage-formatters'
 
 export type StageStatus = 'idle' | 'running' | 'success' | 'warning' | 'error' | 'gate_failed'
 
@@ -427,6 +428,12 @@ export const StageCard = forwardRef<StageCardHandle, StageCardProps>(function St
         // Format response based on stage
         if (config.stageNum === 0) {
           formatStage0Response(data, addLine)
+        } else if (config.stageNum === 1) {
+          formatStage1Response(data, addLine)
+        } else if (config.stageNum === 2) {
+          formatStage2Response(data, addLine)
+        } else if (config.stageNum === 3) {
+          formatStage3Response(data, addLine)
         }
 
         // Set status based on response

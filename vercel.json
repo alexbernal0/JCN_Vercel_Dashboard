@@ -1,5 +1,11 @@
 {
   "functions": {
+    "api/sync_stage1.py": {
+      "maxDuration": 300
+    },
+    "api/sync_stage2.py": {
+      "maxDuration": 300
+    },
     "api/**": {
       "excludeFiles": "{.next,.git,node_modules}/**"
     }

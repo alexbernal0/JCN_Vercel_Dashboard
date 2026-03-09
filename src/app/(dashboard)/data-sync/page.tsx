@@ -19,6 +19,7 @@ const stages: StageConfig[] = [
     icon: '⬇️',
     hasDryRun: true,
     previousGatePassed: true,
+    apiEndpoint: '/api/sync/stage1',
   },
   {
     stageNum: 2,
@@ -27,6 +28,7 @@ const stages: StageConfig[] = [
     icon: '🚀',
     hasDryRun: true,
     previousGatePassed: true,
+    apiEndpoint: '/api/sync/stage2',
   },
   {
     stageNum: 3,
@@ -35,6 +37,7 @@ const stages: StageConfig[] = [
     icon: '📝',
     hasDryRun: false,
     previousGatePassed: true,
+    apiEndpoint: '/api/sync/stage3',
   },
 ]
 
@@ -97,12 +100,7 @@ export default function DataSyncPage() {
               {isRunningAll ? '⏳ Running Pipeline...' : hasRunAll ? '🔄 RERUN ALL' : '▶ RUN ALL'}
             </button>
           </div>
-          <div className="mt-4 flex items-center gap-4">
-            <div className="flex items-center gap-2 rounded-lg bg-yellow-50 px-3 py-1.5 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-              <span>⚠️</span>
-              <span>Stage 0 live — Stages 1-3 pending backend connection</span>
-            </div>
-          </div>
+
         </div>
 
         <hr className="my-6 border-gray-200 dark:border-gray-800" />

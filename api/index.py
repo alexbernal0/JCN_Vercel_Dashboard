@@ -73,6 +73,9 @@ from .portfolio_trends_data import (
 
 # Import data sync Stage 0 module
 from .sync_stage0 import run_stage0
+from .sync_stage1 import run_stage1
+from .sync_stage2 import run_stage2
+from .sync_stage3 import run_stage3
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -110,7 +113,10 @@ async def root():
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/stock/prices": "POST - Get historical stock prices for chart",
             "/api/health": "GET - Health check",
-            "/api/sync/stage0": "GET - Data sync Stage 0 health checks"
+            "/api/sync/stage0": "GET - Data sync Stage 0 health checks",
+            "/api/sync/stage1": "GET - Data sync Stage 1 ingest (EODHD -> DEV)",
+            "/api/sync/stage2": "GET - Data sync Stage 2 validate and promote (DEV -> PROD)",
+            "/api/sync/stage3": "GET - Data sync Stage 3 audit and report"
         }
     }
 
@@ -305,6 +311,46 @@ async def sync_stage0():
     except Exception as e:
         logger.error(f"Error in sync stage 0: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Stage 0 health check failed: {str(e)}")
+
+
+@app.get("/api/sync/stage1")
+async def sync_stage1():
+    """
+    Run Stage 1 ingest: EODHD bulk download to DEV staging tables.
+    Downloads new trading days, validates inline, routes stocks vs ETFs.
+    """
+    try:
+        result = await run_stage1()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync stage 1: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stage 1 ingest failed: {str(e)}")
+
+
+@app.get("/api/sync/stage2")
+async def sync_stage2():
+    """
+    Run Stage 2 validate & promote: DQ audit on DEV, promote to PROD, rebuild Weekly OHLC.
+    """
+    try:
+        result = await run_stage2()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync stage 2: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stage 2 promote failed: {str(e)}")
+
+
+@app.get("/api/sync/stage3")
+async def sync_stage3():
+    """
+    Run Stage 3 audit & report: Cross-table consistency, PROD integrity, self-healing.
+    """
+    try:
+        result = await run_stage3()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync stage 3: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Stage 3 audit failed: {str(e)}")
 
 
 # Vercel serverless function handler

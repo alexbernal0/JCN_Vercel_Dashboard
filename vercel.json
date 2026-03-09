@@ -1,9 +1,6 @@
 {
   "functions": {
-    "api/sync_stage1.py": {
-      "maxDuration": 300
-    },
-    "api/sync_stage2.py": {
+    "api/index.py": {
       "maxDuration": 300
     },
     "api/**": {

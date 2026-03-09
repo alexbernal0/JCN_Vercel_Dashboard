@@ -3,7 +3,7 @@ Cache Manager for Portfolio Performance API
 
 ALL DATA FROM MOTHERDUCK - No external APIs!
 - Current prices: Latest EOD close from MotherDuck
-- Historical data: From MotherDuck PROD_EOD_survivorship table
+- Historical data: From MotherDuck PROD_EOD_survivorship + PROD_EOD_ETFs tables
 - Caching: 24hr for all data (refreshes once per day)
 """
 
@@ -31,7 +31,6 @@ MOTHERDUCK_DATA_FILE = CACHE_DIR / 'motherduck_data.json'
 
 # Cache TTLs
 MOTHERDUCK_TTL = 24 * 60 * 60  # 24 hours (refreshes once per day)
-
 
 class CacheManager:
     """Manages caching for portfolio performance data - ALL FROM MOTHERDUCK"""
@@ -107,26 +106,11 @@ class CacheManager:
         return None
     
     def fetch_motherduck_data(self, tickers: List[str]) -> Dict:
-        """
-        Fetch ALL data from MotherDuck (ONCE per day)
-        
-        This includes:
-        - Current price (latest EOD close)
-        - Previous close
-        - YTD start price
-        - Year ago price
-        - 52-week high/low
-        - Sector/Industry
-        
-        Called ONLY:
-        1. On first load of the day
-        2. When cache is expired (different day)
-        
-        Args:
-            tickers: List of ticker symbols (without .US suffix)
-        
-        Returns:
-            Dict of ticker.US -> all data including current price
+        """Fetch ALL data from MotherDuck PROD_DASHBOARD_SNAPSHOT (ONCE per day)
+
+        Tries the pre-computed snapshot table first.  If the table does not
+        exist yet (first deploy), falls back to the legacy 5-CTE query with
+        adjusted_close and UNION ALL for ETF support.
         """
         import duckdb
         
@@ -136,7 +120,6 @@ class CacheManager:
                 cache_date = self.motherduck_data.get('cache_date')
                 today = datetime.now().strftime('%Y-%m-%d')
                 if cache_date == today:
-                    # Check if ALL requested tickers are in cache
                     cached_data = self.motherduck_data.get('data', {})
                     missing_tickers = [t for t in tickers if f"{t}.US" not in cached_data]
                     
@@ -145,120 +128,211 @@ class CacheManager:
                         return cached_data
                     else:
                         logger.info(f"Cache from today but missing {len(missing_tickers)} tickers: {missing_tickers[:5]}...")
-                        # Fetch ALL tickers (including cached ones) to ensure consistency
                         pass  # Continue to fetch
         
-        logger.info(f"Fetching fresh MotherDuck data for {len(tickers)} tickers (once per day)...")
+        logger.info(f"Fetching fresh MotherDuck data for {len(tickers)} tickers from PROD_DASHBOARD_SNAPSHOT...")
         
         # Add .US suffix for MotherDuck query
         md_tickers = [f"{t}.US" for t in tickers]
         tickers_str = "', '".join(md_tickers)
         
-        # Connect to MotherDuck
         motherduck_token = os.getenv('MOTHERDUCK_TOKEN')
         if not motherduck_token:
             raise ValueError("MOTHERDUCK_TOKEN not found in environment")
         
-        # Connect to MotherDuck
-        # HOME env var is set at module level to /tmp for serverless compatibility
         conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
         
         try:
-            # Single optimized query for all stocks
-            query = f"""
-            WITH portfolio_symbols AS (
-                SELECT unnest(['{tickers_str}']) as symbol
-            ),
-            latest_eod AS (
-                SELECT 
-                    symbol,
-                    close as latest_eod_close,
-                    gics_sector,
-                    industry
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship)
-            ),
-            previous_close AS (
-                SELECT 
-                    symbol,
-                    close as prev_close
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date = (SELECT MAX(date) - INTERVAL '1 day' FROM PROD_EODHD.main.PROD_EOD_survivorship)
-            ),
-            ytd_start AS (
-                SELECT 
-                    symbol,
-                    close as ytd_start_price
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date >= '2026-01-01'
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
-            ),
-            year_ago AS (
-                SELECT 
-                    symbol,
-                    close as year_ago_price
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date >= CURRENT_DATE - INTERVAL '1 year'
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
-            ),
-            week_52_stats AS (
-                SELECT 
-                    symbol,
-                    MAX(high) as week_52_high,
-                    MIN(low) as week_52_low
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
-                AND date >= CURRENT_DATE - INTERVAL '52 weeks'
-                GROUP BY symbol
-            )
-            SELECT 
-                l.symbol,
-                l.latest_eod_close,
-                l.gics_sector,
-                l.industry,
-                p.prev_close,
-                y.ytd_start_price,
-                ya.year_ago_price,
-                w.week_52_high,
-                w.week_52_low
-            FROM latest_eod l
-            LEFT JOIN previous_close p ON l.symbol = p.symbol
-            LEFT JOIN ytd_start y ON l.symbol = y.symbol
-            LEFT JOIN year_ago ya ON l.symbol = ya.symbol
-            LEFT JOIN week_52_stats w ON l.symbol = w.symbol
-            """
-            
-            result = conn.execute(query).fetchall()
-            
-            # Build data dictionary
-            data = {}
-            for row in result:
-                symbol, latest_close, sector, industry, prev_close, ytd_start, year_ago, week_52_high, week_52_low = row
-                
-                data[symbol] = {
-                    'latest_eod_close': latest_close,  # THIS IS THE CURRENT PRICE!
-                    'prev_close': prev_close,
-                    'ytd_start_price': ytd_start,
-                    'year_ago_price': year_ago,
-                    'week_52_high': week_52_high,
-                    'week_52_low': week_52_low,
-                    'sector': sector,
-                    'industry': industry
-                }
-            
-            logger.info(f"Fetched data for {len(data)} tickers from MotherDuck")
-            
-            # Save to cache
-            self._save_motherduck_data(data)
-            
-            return data
-            
+            data = self._fetch_from_snapshot(conn, tickers_str)
+        except Exception as snapshot_err:
+            logger.warning(f"PROD_DASHBOARD_SNAPSHOT query failed ({snapshot_err}), falling back to legacy 5-CTE query")
+            data = self._fetch_legacy_cte(conn, tickers_str)
         finally:
             conn.close()
+        
+        logger.info(f"Fetched data for {len(data)} tickers from MotherDuck")
+        self._save_motherduck_data(data)
+        return data
+
+    # ------------------------------------------------------------------
+    # Snapshot path (preferred) - single SELECT from pre-computed table
+    # ------------------------------------------------------------------
+    def _fetch_from_snapshot(self, conn, tickers_str: str) -> Dict:
+        """Query PROD_DASHBOARD_SNAPSHOT for all dashboard metrics."""
+        query = f"""
+        SELECT 
+            symbol,
+            adjusted_close,
+            prev_close,
+            ytd_start_price,
+            year_ago_price,
+            week_52_high,
+            week_52_low,
+            daily_change_pct,
+            ytd_pct,
+            yoy_pct,
+            pct_below_52wk_high,
+            chan_range_pct,
+            gics_sector,
+            industry,
+            market_cap,
+            is_etf
+        FROM PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT
+        WHERE symbol IN ('{tickers_str}')
+        """
+        
+        result = conn.execute(query).fetchall()
+        
+        data = {}
+        for row in result:
+            symbol = row[0]
+            data[symbol] = {
+                'latest_eod_close': row[1],
+                'prev_close': row[2],
+                'ytd_start_price': row[3],
+                'year_ago_price': row[4],
+                'week_52_high': row[5],
+                'week_52_low': row[6],
+                'daily_change_pct': row[7],
+                'ytd_pct': row[8],
+                'yoy_pct': row[9],
+                'pct_below_52wk_high': row[10],
+                'chan_range_pct': row[11],
+                'sector': row[12],
+                'industry': row[13],
+                'market_cap': row[14],
+                'is_etf': row[15],
+            }
+        return data
+
+    # ------------------------------------------------------------------
+    # Legacy fallback - 5-CTE join with adjusted_close + ETF UNION ALL
+    # ------------------------------------------------------------------
+    def _fetch_legacy_cte(self, conn, tickers_str: str) -> Dict:
+        """Fallback query when PROD_DASHBOARD_SNAPSHOT does not exist yet."""
+        query = f"""
+        WITH portfolio_symbols AS (
+            SELECT unnest(['{tickers_str}']) as symbol
+        ),
+        combined_eod AS (
+            SELECT symbol, date, adjusted_close, high, low,
+                   gics_sector, industry, market_cap
+            FROM PROD_EODHD.main.PROD_EOD_survivorship
+            WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
+            UNION ALL
+            SELECT symbol, date, adjusted_close, high, low,
+                   NULL as gics_sector, NULL as industry, NULL as market_cap
+            FROM PROD_EODHD.main.PROD_EOD_ETFs
+            WHERE symbol IN (SELECT symbol FROM portfolio_symbols)
+        ),
+        latest_eod AS (
+            SELECT 
+                symbol,
+                adjusted_close as latest_eod_close,
+                gics_sector,
+                industry,
+                market_cap
+            FROM combined_eod
+            WHERE date = (SELECT MAX(date) FROM combined_eod)
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+        ),
+        previous_close AS (
+            SELECT 
+                symbol,
+                adjusted_close as prev_close
+            FROM combined_eod
+            WHERE date < (SELECT MAX(date) FROM combined_eod)
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+        ),
+        ytd_start AS (
+            SELECT 
+                symbol,
+                adjusted_close as ytd_start_price
+            FROM combined_eod
+            WHERE date >= DATE_TRUNC('year', CURRENT_DATE)
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+        ),
+        year_ago AS (
+            SELECT 
+                symbol,
+                adjusted_close as year_ago_price
+            FROM combined_eod
+            WHERE date >= CURRENT_DATE - INTERVAL '1 year'
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+        ),
+        week_52_stats AS (
+            SELECT 
+                symbol,
+                MAX(high) as week_52_high,
+                MIN(low) as week_52_low
+            FROM combined_eod
+            WHERE date >= CURRENT_DATE - INTERVAL '52 weeks'
+            GROUP BY symbol
+        )
+        SELECT 
+            l.symbol,
+            l.latest_eod_close,
+            l.gics_sector,
+            l.industry,
+            l.market_cap,
+            p.prev_close,
+            y.ytd_start_price,
+            ya.year_ago_price,
+            w.week_52_high,
+            w.week_52_low
+        FROM latest_eod l
+        LEFT JOIN previous_close p ON l.symbol = p.symbol
+        LEFT JOIN ytd_start y ON l.symbol = y.symbol
+        LEFT JOIN year_ago ya ON l.symbol = ya.symbol
+        LEFT JOIN week_52_stats w ON l.symbol = w.symbol
+        """
+        
+        result = conn.execute(query).fetchall()
+        
+        data = {}
+        for row in result:
+            (symbol, latest_close, sector, industry, market_cap,
+             prev_close, ytd_start, year_ago, week_52_high, week_52_low) = row
+            
+            # Compute derived pct fields client-side for legacy path
+            daily_change_pct = None
+            if latest_close and prev_close:
+                daily_change_pct = round((latest_close - prev_close) / prev_close * 100, 2)
+            
+            ytd_pct = None
+            if latest_close and ytd_start:
+                ytd_pct = round((latest_close - ytd_start) / ytd_start * 100, 2)
+            
+            yoy_pct = None
+            if latest_close and year_ago:
+                yoy_pct = round((latest_close - year_ago) / year_ago * 100, 2)
+            
+            pct_below_52wk_high = None
+            if latest_close and week_52_high and week_52_high > 0:
+                pct_below_52wk_high = round((week_52_high - latest_close) / week_52_high * 100, 2)
+            
+            chan_range_pct = None
+            if latest_close and week_52_high and week_52_low and (week_52_high - week_52_low) > 0:
+                chan_range_pct = round((latest_close - week_52_low) / (week_52_high - week_52_low) * 100, 2)
+            
+            data[symbol] = {
+                'latest_eod_close': latest_close,
+                'prev_close': prev_close,
+                'ytd_start_price': ytd_start,
+                'year_ago_price': year_ago,
+                'week_52_high': week_52_high,
+                'week_52_low': week_52_low,
+                'daily_change_pct': daily_change_pct,
+                'ytd_pct': ytd_pct,
+                'yoy_pct': yoy_pct,
+                'pct_below_52wk_high': pct_below_52wk_high,
+                'chan_range_pct': chan_range_pct,
+                'sector': sector,
+                'industry': industry,
+                'market_cap': market_cap,
+                'is_etf': None,
+            }
+        return data
     
     def get_current_price(self, ticker: str) -> Optional[float]:
         """
@@ -291,7 +365,6 @@ class CacheManager:
         
         logger.info(f"Fetching historical prices for {len(symbols)} symbols from {start_date} to {end_date}")
         
-        # Connect to MotherDuck
         motherduck_token = os.getenv('MOTHERDUCK_TOKEN')
         if not motherduck_token:
             raise ValueError("MOTHERDUCK_TOKEN not found in environment")
@@ -299,29 +372,27 @@ class CacheManager:
         conn = duckdb.connect(f'md:?motherduck_token={motherduck_token}')
         
         try:
-            # Prepare symbols for query
             symbols_str = "', '".join(symbols)
             
-            # Query historical prices
+            # Query BOTH survivorship and ETFs with adjusted_close (Bug 7 fix)
             query = f"""
-            SELECT 
-                symbol,
-                date,
-                close
+            SELECT symbol, date, adjusted_close as close
             FROM PROD_EODHD.main.PROD_EOD_survivorship
             WHERE symbol IN ('{symbols_str}')
-            AND date >= '{start_date}'
-            AND date <= '{end_date}'
+              AND date >= '{start_date}' AND date <= '{end_date}'
+            UNION ALL
+            SELECT symbol, date, adjusted_close as close
+            FROM PROD_EODHD.main.PROD_EOD_ETFs
+            WHERE symbol IN ('{symbols_str}')
+              AND date >= '{start_date}' AND date <= '{end_date}'
             ORDER BY symbol, date ASC
             """
             
             result = conn.execute(query).fetchall()
             
-            # Build data dictionary
             price_data = {}
             for row in result:
                 symbol, date, close = row
-                # Remove .US suffix for response
                 clean_symbol = symbol.replace('.US', '')
                 
                 if clean_symbol not in price_data:
@@ -340,8 +411,9 @@ class CacheManager:
 
     def fetch_weekly_ohlc(self, symbols: List[str], start_date: str, end_date: str) -> Dict:
         """
-        Fetch weekly OHLC from MotherDuck (aggregated from daily PROD_EOD_survivorship).
-        Used for portfolio trends candlestick charts.
+        Fetch weekly OHLC from MotherDuck (aggregated from daily data).
+        Queries BOTH PROD_EOD_survivorship and PROD_EOD_ETFs.
+        Uses adjusted_close for the close column (Bug 8 fix).
         """
         import duckdb
 
@@ -356,24 +428,32 @@ class CacheManager:
         try:
             symbols_str = "', '".join(symbols)
             query = f"""
-            WITH ranked AS (
+            WITH daily_data AS (
+                SELECT symbol, date, open, high, low, close, adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE symbol IN ('{symbols_str}')
+                  AND date >= '{start_date}' AND date <= '{end_date}'
+                UNION ALL
+                SELECT symbol, date, open, high, low, close, adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                WHERE symbol IN ('{symbols_str}')
+                  AND date >= '{start_date}' AND date <= '{end_date}'
+            ),
+            ranked AS (
                 SELECT
                     symbol,
                     date_trunc('week', date)::date AS week_start,
-                    date, open, high, low, close,
+                    date, open, high, low, adjusted_close,
                     row_number() OVER (PARTITION BY symbol, date_trunc('week', date) ORDER BY date ASC) AS rn_asc,
                     row_number() OVER (PARTITION BY symbol, date_trunc('week', date) ORDER BY date DESC) AS rn_desc
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol IN ('{symbols_str}')
-                  AND date >= '{start_date}'
-                  AND date <= '{end_date}'
+                FROM daily_data
             )
             SELECT
                 symbol, week_start,
                 max(CASE WHEN rn_asc = 1 THEN open END) AS open,
                 max(high) AS high,
                 min(low) AS low,
-                max(CASE WHEN rn_desc = 1 THEN close END) AS close
+                max(CASE WHEN rn_desc = 1 THEN adjusted_close END) AS close
             FROM ranked
             GROUP BY symbol, week_start
             ORDER BY symbol, week_start ASC

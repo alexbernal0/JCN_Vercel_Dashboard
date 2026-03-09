@@ -1,13 +1,7 @@
 """
 Benchmarks API Endpoint
-
 Calculates portfolio performance vs. benchmark (SPY) using MotherDuck data.
-Implements 24-hour caching for fast loading (same as Portfolio Performance).
-
-Calculations:
-1. Portfolio Est. Daily % Change - Weighted average of portfolio holdings
-2. Benchmark Est. Daily % Change - SPY daily change from MotherDuck
-3. Est. Daily Alpha - Portfolio return minus benchmark return
+Single connection, batch queries, 24-hour caching.
 """
 
 import os
@@ -17,28 +11,23 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import duckdb
 
-# Set HOME environment variable for DuckDB in serverless
 os.environ['HOME'] = '/tmp'
 
-# Cache directory
 CACHE_DIR = '/tmp/jcn_cache'
 BENCHMARKS_CACHE_FILE = f'{CACHE_DIR}/benchmarks_data.json'
 
 
 class HoldingInput(BaseModel):
-    """Portfolio holding input model"""
     symbol: str
     cost_basis: float
     shares: int
 
 
 class BenchmarksRequest(BaseModel):
-    """Request model for benchmarks calculation"""
     holdings: List[HoldingInput]
 
 
 class BenchmarksResponse(BaseModel):
-    """Response model for benchmarks calculation"""
     portfolio_daily_change: float
     benchmark_daily_change: float
     daily_alpha: float
@@ -49,297 +38,146 @@ class BenchmarksResponse(BaseModel):
 
 
 def ensure_cache_dir():
-    """Ensure cache directory exists"""
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 
 def load_cached_benchmarks() -> Optional[Dict[str, Any]]:
-    """
-    Load cached benchmarks data if available and fresh (same day).
-    
-    Returns:
-    --------
-    Optional[dict]
-        Cached data if available and fresh, None otherwise
-    """
+    """Load cached benchmarks data if available and fresh (same day)."""
     try:
         if not os.path.exists(BENCHMARKS_CACHE_FILE):
             return None
-        
         with open(BENCHMARKS_CACHE_FILE, 'r') as f:
             cache = json.load(f)
-        
-        # Check if cache is from today
         cache_date = cache.get('cache_date')
         today = str(date.today())
-        
         if cache_date == today:
-            print(f"✅ Using cached benchmarks data from {cache_date}")
             return cache
-        else:
-            print(f"⚠️ Cache expired (cache: {cache_date}, today: {today})")
-            return None
-            
-    except Exception as e:
-        print(f"Error loading cached benchmarks: {e}")
+        return None
+    except Exception:
         return None
 
 
 def save_benchmarks_cache(data: Dict[str, Any]):
-    """
-    Save benchmarks data to cache.
-    
-    Parameters:
-    -----------
-    data : dict
-        Benchmarks data to cache
-    """
+    """Save benchmarks data to cache."""
     try:
         ensure_cache_dir()
-        
         cache = {
             'cache_date': str(date.today()),
             'loaded_at': datetime.now().isoformat(),
             'data': data
         }
-        
         with open(BENCHMARKS_CACHE_FILE, 'w') as f:
             json.dump(cache, f, indent=2)
-        
-        print(f"✅ Benchmarks data cached to {BENCHMARKS_CACHE_FILE}")
-        
-    except Exception as e:
-        print(f"Error saving benchmarks cache: {e}")
+    except Exception:
+        pass
 
 
-def get_spy_daily_change() -> Dict[str, Any]:
+def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
     """
-    Get SPY's daily percentage change from MotherDuck.
+    Fetch ALL benchmark data in a single MotherDuck connection.
     
-    Returns:
-    --------
-    dict
-        Contains 'daily_change', 'date', 'current_price', 'previous_price'
+    Returns dict with:
+    - portfolio_daily_change: weighted average daily change
+    - benchmark_daily_change: SPY daily change
+    - daily_alpha: portfolio - benchmark
+    - benchmark_date: date of latest SPY data
     """
+    token = os.getenv('MOTHERDUCK_TOKEN')
+    if not token:
+        raise ValueError("MOTHERDUCK_TOKEN not found in environment")
+    
+    conn = duckdb.connect(f'md:?motherduck_token={token}')
+    
     try:
-        token = os.getenv('MOTHERDUCK_TOKEN')
-        if not token:
-            raise ValueError("MOTHERDUCK_TOKEN not found in environment")
+        # Build list of ALL symbols we need (holdings + SPY)
+        all_symbols = list(set([f"{h.symbol}.US" for h in holdings] + ["SPY.US"]))
+        symbols_str = "', '".join(all_symbols)
         
-        conn = duckdb.connect(f'md:PROD_EODHD?motherduck_token={token}')
-        
-        # Get last 2 trading days of SPY data
-        query = """
-            SELECT date, close
-            FROM PROD_EODHD.main.PROD_EOD_ETFs
-            WHERE symbol = 'SPY.US'
-            ORDER BY date DESC
-            LIMIT 2
-        """
-        
-        result = conn.execute(query).fetchall()
-        conn.close()
-        
-        if len(result) < 2:
-            return {
-                'daily_change': 0.0,
-                'date': None,
-                'current_price': None,
-                'previous_price': None,
-                'error': 'Insufficient SPY data'
-            }
-        
-        # Most recent is first (DESC order)
-        current_date, current_price = result[0]
-        previous_date, previous_price = result[1]
-        
-        # Calculate daily percentage change
-        daily_change = ((current_price - previous_price) / previous_price) * 100
-        
-        return {
-            'daily_change': round(daily_change, 2),
-            'date': str(current_date),
-            'current_price': current_price,
-            'previous_price': previous_price
-        }
-        
-    except Exception as e:
-        print(f"Error fetching SPY data: {e}")
-        return {
-            'daily_change': 0.0,
-            'date': None,
-            'current_price': None,
-            'previous_price': None,
-            'error': str(e)
-        }
-
-
-def get_stock_daily_change(symbol: str) -> float:
-    """
-    Get a stock's daily percentage change from MotherDuck.
-    
-    Parameters:
-    -----------
-    symbol : str
-        Stock ticker symbol (without .US suffix)
-    
-    Returns:
-    --------
-    float
-        Daily percentage change
-    """
-    try:
-        token = os.getenv('MOTHERDUCK_TOKEN')
-        if not token:
-            return 0.0
-        
-        conn = duckdb.connect(f'md:PROD_EODHD?motherduck_token={token}')
-        
-        # Add .US suffix for MotherDuck query
-        md_symbol = f"{symbol}.US"
-        
-        # Get last 2 trading days
-        query = """
-            SELECT date, adjusted_close
+        # Single query: get last 2 trading days for ALL symbols from BOTH tables
+        query = f"""
+        WITH combined AS (
+            SELECT symbol, date, adjusted_close
             FROM PROD_EODHD.main.PROD_EOD_survivorship
-            WHERE symbol = ?
-            ORDER BY date DESC
-            LIMIT 2
+            WHERE symbol IN ('{symbols_str}')
+            UNION ALL
+            SELECT symbol, date, adjusted_close
+            FROM PROD_EODHD.main.PROD_EOD_ETFs
+            WHERE symbol IN ('{symbols_str}')
+        ),
+        ranked AS (
+            SELECT symbol, date, adjusted_close,
+                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+            FROM combined
+        )
+        SELECT symbol, date, adjusted_close, rn
+        FROM ranked
+        WHERE rn <= 2
+        ORDER BY symbol, rn
         """
         
-        result = conn.execute(query, [md_symbol]).fetchall()
-        conn.close()
+        rows = conn.execute(query).fetchall()
         
-        if len(result) < 2:
-            return 0.0
+        # Build lookup: symbol -> {current_price, previous_price, date}
+        prices = {}
+        for symbol, dt, adj_close, rn in rows:
+            if symbol not in prices:
+                prices[symbol] = {}
+            if rn == 1:
+                prices[symbol]['current'] = adj_close
+                prices[symbol]['date'] = str(dt)
+            elif rn == 2:
+                prices[symbol]['previous'] = adj_close
         
-        current_price = result[0][1]
-        previous_price = result[1][1]
+        # Calculate SPY benchmark daily change
+        spy = prices.get('SPY.US', {})
+        spy_current = spy.get('current', 0)
+        spy_previous = spy.get('previous', 0)
+        benchmark_daily_change = 0.0
+        benchmark_date = spy.get('date', 'N/A')
+        if spy_previous and spy_previous != 0:
+            benchmark_daily_change = round(((spy_current - spy_previous) / spy_previous) * 100, 2)
         
-        if previous_price == 0:
-            return 0.0
-        
-        daily_change = ((current_price - previous_price) / previous_price) * 100
-        return round(daily_change, 2)
-        
-    except Exception as e:
-        print(f"Error fetching {symbol} data: {e}")
-        return 0.0
-
-
-def calculate_portfolio_daily_change(holdings: List[HoldingInput]) -> Dict[str, Any]:
-    """
-    Calculate portfolio's weighted daily percentage change.
-    
-    Formula:
-    Portfolio Daily Change = Σ (Portfolio Weight × Stock Daily Change)
-    
-    Parameters:
-    -----------
-    holdings : List[HoldingInput]
-        List of portfolio holdings with symbol, cost_basis, shares
-    
-    Returns:
-    --------
-    dict
-        Contains 'daily_change', 'total_value', 'holdings_detail'
-    """
-    try:
-        # First, get current prices and calculate position values
-        holdings_detail = []
+        # Calculate portfolio weighted daily change
         total_value = 0.0
+        weighted_change = 0.0
         
         for holding in holdings:
-            # Get current price from MotherDuck
-            token = os.getenv('MOTHERDUCK_TOKEN')
-            if not token:
-                continue
-            
-            conn = duckdb.connect(f'md:PROD_EODHD?motherduck_token={token}')
             md_symbol = f"{holding.symbol}.US"
+            sym_prices = prices.get(md_symbol, {})
+            current = sym_prices.get('current')
+            previous = sym_prices.get('previous')
             
-            query = """
-                SELECT adjusted_close
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE symbol = ?
-                ORDER BY date DESC
-                LIMIT 1
-            """
-            
-            result = conn.execute(query, [md_symbol]).fetchone()
-            conn.close()
-            
-            if result:
-                current_price = result[0]
-                position_value = current_price * holding.shares
+            if current:
+                position_value = current * holding.shares
                 total_value += position_value
                 
-                # Get daily change for this stock
-                daily_change = get_stock_daily_change(holding.symbol)
+                if previous and previous != 0:
+                    daily_change = ((current - previous) / previous) * 100
+                else:
+                    daily_change = 0.0
                 
-                holdings_detail.append({
-                    'symbol': holding.symbol,
-                    'shares': holding.shares,
-                    'current_price': current_price,
-                    'position_value': position_value,
-                    'daily_change': daily_change
-                })
+                weighted_change += position_value * daily_change
         
-        if total_value == 0:
-            return {
-                'daily_change': 0.0,
-                'total_value': 0.0,
-                'holdings_detail': []
-            }
-        
-        # Calculate weighted daily change
-        weighted_change = 0.0
-        for detail in holdings_detail:
-            weight = detail['position_value'] / total_value
-            weighted_change += weight * detail['daily_change']
+        portfolio_daily_change = round(weighted_change / total_value, 2) if total_value > 0 else 0.0
+        daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 2)
         
         return {
-            'daily_change': round(weighted_change, 2),
-            'total_value': total_value,
-            'holdings_detail': holdings_detail
+            'portfolio_daily_change': portfolio_daily_change,
+            'benchmark_daily_change': benchmark_daily_change,
+            'daily_alpha': daily_alpha,
+            'benchmark_symbol': 'SPY',
+            'benchmark_date': benchmark_date,
         }
-        
-    except Exception as e:
-        print(f"Error calculating portfolio daily change: {e}")
-        return {
-            'daily_change': 0.0,
-            'total_value': 0.0,
-            'holdings_detail': [],
-            'error': str(e)
-        }
+    
+    finally:
+        conn.close()
 
 
 async def calculate_benchmarks(request: BenchmarksRequest, force_refresh: bool = False) -> BenchmarksResponse:
-    """
-    Calculate portfolio benchmarks: portfolio return, benchmark return, and alpha.
-    
-    Implements 24-hour caching:
-    - Loads cached data if available and fresh (same day)
-    - Only queries MotherDuck if cache is missing or expired
-    - force_refresh parameter is ignored (cache always used if available)
-    
-    Parameters:
-    -----------
-    request : BenchmarksRequest
-        Contains list of portfolio holdings
-    force_refresh : bool
-        Ignored - benchmarks always use cached data if available (same day)
-    
-    Returns:
-    --------
-    BenchmarksResponse
-        Contains portfolio_daily_change, benchmark_daily_change, daily_alpha
-    """
-    # Try to load from cache first
+    """Calculate portfolio benchmarks: portfolio return, benchmark return, and alpha."""
+    # Try cache first
     cached = load_cached_benchmarks()
-    
     if cached and not force_refresh:
-        # Use cached data
         data = cached['data']
         return BenchmarksResponse(
             portfolio_daily_change=data['portfolio_daily_change'],
@@ -348,50 +186,22 @@ async def calculate_benchmarks(request: BenchmarksRequest, force_refresh: bool =
             last_updated=cached['loaded_at'],
             benchmark_symbol=data['benchmark_symbol'],
             benchmark_date=data['benchmark_date'],
-            cache_info={
-                'cache_hit': True,
-                'cache_date': cached['cache_date'],
-                'loaded_at': cached['loaded_at']
-            }
+            cache_info={'cache_hit': True, 'cache_date': cached['cache_date'], 'loaded_at': cached['loaded_at']}
         )
     
-    # Cache miss or force refresh - calculate fresh data
-    print("⚠️ Cache miss - calculating fresh benchmarks data from MotherDuck")
-    
-    # Calculate portfolio daily change
-    portfolio_result = calculate_portfolio_daily_change(request.holdings)
-    portfolio_daily_change = portfolio_result['daily_change']
-    
-    # Get SPY (benchmark) daily change
-    spy_result = get_spy_daily_change()
-    benchmark_daily_change = spy_result['daily_change']
-    benchmark_date = spy_result['date'] or 'N/A'
-    
-    # Calculate alpha (excess return over benchmark)
-    daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 2)
-    
-    # Prepare response data
-    response_data = {
-        'portfolio_daily_change': portfolio_daily_change,
-        'benchmark_daily_change': benchmark_daily_change,
-        'daily_alpha': daily_alpha,
-        'benchmark_symbol': 'SPY',
-        'benchmark_date': benchmark_date
-    }
+    # Cache miss — calculate fresh
+    result = _fetch_benchmarks_batch(request.holdings)
     
     # Save to cache
-    save_benchmarks_cache(response_data)
+    save_benchmarks_cache(result)
     
     return BenchmarksResponse(
-        portfolio_daily_change=portfolio_daily_change,
-        benchmark_daily_change=benchmark_daily_change,
-        daily_alpha=daily_alpha,
+        portfolio_daily_change=result['portfolio_daily_change'],
+        benchmark_daily_change=result['benchmark_daily_change'],
+        daily_alpha=result['daily_alpha'],
         last_updated=datetime.now().isoformat(),
         benchmark_symbol='SPY',
-        benchmark_date=benchmark_date,
-        cache_info={
-            'cache_hit': False,
-            'cache_date': str(date.today()),
-            'loaded_at': datetime.now().isoformat()
-        }
+        benchmark_date=result['benchmark_date'],
+        cache_info={'cache_hit': False, 'cache_date': str(date.today()), 'loaded_at': datetime.now().isoformat()}
     )
+

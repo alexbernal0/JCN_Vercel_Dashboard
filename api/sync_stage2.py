@@ -4,6 +4,7 @@ Stage 2 — Validate & Promote: DQ audit on DEV, promote to PROD, rebuild Weekly
 Phase 1: 6-point data quality audit on DEV (new data)
 Phase 2: DEV → PROD promotion via ANTI JOIN (only new rows)
 Phase 3: Incremental Weekly OHLC rebuild for new dates
+Phase 3.5: Rebuild PROD_DASHBOARD_SNAPSHOT (one row per symbol, all dashboard fields)
 Phase 4: Post-validation + SYNC_LOG entry
 
 Prime Directive: PD-01 (append-only), PD-04 (no partial PROD writes),
@@ -245,6 +246,155 @@ def _rebuild_weekly_ohlc(conn: duckdb.DuckDBPyConnection) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase 3.5: Dashboard Snapshot Rebuild
+# ---------------------------------------------------------------------------
+
+def _rebuild_dashboard_snapshot(conn: "duckdb.DuckDBPyConnection") -> Dict:
+    """Rebuild PROD_DASHBOARD_SNAPSHOT - one row per symbol, all dashboard fields.
+
+    Full rebuild (DROP + CREATE AS). Idempotent per PD-07.
+    Uses adjusted_close only (PD-05). Unions survivorship + ETFs.
+    Sector/industry/market_cap pulled from most recent non-null row.
+    """
+    try:
+        conn.execute("DROP TABLE IF EXISTS PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT")
+
+        conn.execute("""
+            CREATE TABLE PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT AS
+
+            WITH surv_max AS (
+                SELECT MAX(date) AS max_date FROM PROD_EODHD.main.PROD_EOD_survivorship
+            ),
+            etf_max AS (
+                SELECT MAX(date) AS max_date FROM PROD_EODHD.main.PROD_EOD_ETFs
+            ),
+            surv_latest AS (
+                SELECT s.symbol, s.date, s.adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_survivorship s, surv_max m
+                WHERE s.date = m.max_date
+            ),
+            etf_latest AS (
+                SELECT e.symbol, e.date, e.adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_ETFs e, etf_max m
+                WHERE e.date = m.max_date
+            ),
+            all_latest AS (
+                SELECT symbol, date, adjusted_close, FALSE AS is_etf FROM surv_latest
+                UNION ALL
+                SELECT symbol, date, adjusted_close, TRUE AS is_etf FROM etf_latest
+            ),
+            surv_prev AS (
+                SELECT symbol, adjusted_close AS prev_close
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE date < (SELECT max_date FROM surv_max)
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+            ),
+            etf_prev AS (
+                SELECT symbol, adjusted_close AS prev_close
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                WHERE date < (SELECT max_date FROM etf_max)
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+            ),
+            all_prev AS (
+                SELECT symbol, prev_close FROM surv_prev
+                UNION ALL
+                SELECT symbol, prev_close FROM etf_prev
+            ),
+            surv_ytd AS (
+                SELECT symbol, adjusted_close AS ytd_start_price
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE date >= DATE_TRUNC('year', CURRENT_DATE)
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+            ),
+            etf_ytd AS (
+                SELECT symbol, adjusted_close AS ytd_start_price
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                WHERE date >= DATE_TRUNC('year', CURRENT_DATE)
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+            ),
+            all_ytd AS (
+                SELECT symbol, ytd_start_price FROM surv_ytd
+                UNION ALL
+                SELECT symbol, ytd_start_price FROM etf_ytd
+            ),
+            surv_yago AS (
+                SELECT symbol, adjusted_close AS year_ago_price
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE date >= CURRENT_DATE - INTERVAL 1 YEAR
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+            ),
+            etf_yago AS (
+                SELECT symbol, adjusted_close AS year_ago_price
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                WHERE date >= CURRENT_DATE - INTERVAL 1 YEAR
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date ASC) = 1
+            ),
+            all_yago AS (
+                SELECT symbol, year_ago_price FROM surv_yago
+                UNION ALL
+                SELECT symbol, year_ago_price FROM etf_yago
+            ),
+            surv_52wk AS (
+                SELECT symbol, MAX(high) AS week_52_high, MIN(low) AS week_52_low
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE date >= CURRENT_DATE - INTERVAL 52 WEEK
+                GROUP BY symbol
+            ),
+            etf_52wk AS (
+                SELECT symbol, MAX(high) AS week_52_high, MIN(low) AS week_52_low
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                WHERE date >= CURRENT_DATE - INTERVAL 52 WEEK
+                GROUP BY symbol
+            ),
+            all_52wk AS (
+                SELECT symbol, week_52_high, week_52_low FROM surv_52wk
+                UNION ALL
+                SELECT symbol, week_52_high, week_52_low FROM etf_52wk
+            ),
+            metadata AS (
+                SELECT symbol, gics_sector, industry, market_cap
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                WHERE gics_sector IS NOT NULL
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+            )
+
+            SELECT
+                a.symbol,
+                a.date,
+                a.adjusted_close,
+                p.prev_close,
+                y.ytd_start_price,
+                ya.year_ago_price,
+                w.week_52_high,
+                w.week_52_low,
+                ROUND(((a.adjusted_close - p.prev_close) / NULLIF(p.prev_close, 0) * 100), 4) AS daily_change_pct,
+                ROUND(((a.adjusted_close - y.ytd_start_price) / NULLIF(y.ytd_start_price, 0) * 100), 4) AS ytd_pct,
+                ROUND(((a.adjusted_close - ya.year_ago_price) / NULLIF(ya.year_ago_price, 0) * 100), 4) AS yoy_pct,
+                ROUND(((w.week_52_high - a.adjusted_close) / NULLIF(w.week_52_high, 0) * 100), 4) AS pct_below_52wk_high,
+                ROUND(((a.adjusted_close - w.week_52_low) / NULLIF(w.week_52_high - w.week_52_low, 0) * 100), 4) AS chan_range_pct,
+                m.gics_sector,
+                m.industry,
+                m.market_cap,
+                a.is_etf
+            FROM all_latest a
+            LEFT JOIN all_prev p ON a.symbol = p.symbol
+            LEFT JOIN all_ytd y ON a.symbol = y.symbol
+            LEFT JOIN all_yago ya ON a.symbol = ya.symbol
+            LEFT JOIN all_52wk w ON a.symbol = w.symbol
+            LEFT JOIN metadata m ON a.symbol = m.symbol
+        """)
+
+        row_count = conn.execute(
+            "SELECT COUNT(*) FROM PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT"
+        ).fetchone()[0]
+
+        return {"rows": row_count, "status": "PASS"}
+
+    except Exception as e:
+        return {"error": str(e)[:300], "status": "FAIL"}
+
+
+# ---------------------------------------------------------------------------
 # Phase 4: Post-validation + SYNC_LOG
 # ---------------------------------------------------------------------------
 
@@ -343,6 +493,7 @@ async def run_stage2() -> Dict:
     Phase 1: DQ audit on DEV (6 checks)
     Phase 2: DEV → PROD promotion (3 tables via ANTI JOIN)
     Phase 3: Weekly OHLC incremental rebuild
+    Phase 3.5: Dashboard snapshot rebuild
     Phase 4: Post-promotion validation + SYNC_LOG
     """
     t0 = time.time()
@@ -353,6 +504,7 @@ async def run_stage2() -> Dict:
             "stage": 2, "overall_status": "FAIL",
             "error": "MOTHERDUCK_TOKEN not set",
             "dq_audit": {}, "promotions": [], "weekly_ohlc": {},
+        "dashboard_snapshot": {},
             "post_validation": {}, "sync_log": False,
             "can_proceed": False, "execution_ms": 0,
         }
@@ -363,6 +515,7 @@ async def run_stage2() -> Dict:
         "dq_audit": {},
         "promotions": [],
         "weekly_ohlc": {},
+        "dashboard_snapshot": {},
         "post_validation": {},
         "sync_log": False,
         "can_proceed": True,
@@ -439,6 +592,17 @@ async def run_stage2() -> Dict:
         # ── Phase 3: Weekly OHLC Rebuild ──
         weekly = _rebuild_weekly_ohlc(conn)
         result["weekly_ohlc"] = weekly
+
+        # Budget check
+        if time.time() - t0 > OVERALL_BUDGET_SECONDS:
+            result["dashboard_snapshot"] = {"status": "SKIP", "note": "Time budget exhausted"}
+            result["post_validation"] = {"checks": [], "note": "Skipped — time budget"}
+            result["execution_ms"] = round((time.time() - t0) * 1000)
+            return result
+
+        # ── Phase 3.5: Dashboard Snapshot Rebuild ──
+        snapshot = _rebuild_dashboard_snapshot(conn)
+        result["dashboard_snapshot"] = snapshot
 
         # Budget check
         if time.time() - t0 > OVERALL_BUDGET_SECONDS:

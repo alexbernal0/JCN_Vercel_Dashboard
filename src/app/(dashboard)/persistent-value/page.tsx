@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import useSWR, { mutate } from 'swr'
 import { PortfolioInput } from '@/components/dashboard/PortfolioInput'
@@ -53,7 +53,36 @@ const DEFAULT_HOLDINGS = [
   { symbol: 'TSM', costBasis: 99.61, shares: 5850 },
 ];
 
-// Custom fetcher for POST requests with body
+// localStorage cache helpers (24-hour TTL)
+const LS_PERF_KEY = 'jcn_perf_cache';
+const LS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function lsGet(key: string): any | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - (parsed._ts ?? 0) > LS_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed.payload;
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, payload: any): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify({ payload, _ts: Date.now() }));
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
+// Custom fetcher for POST requests with localStorage write-through
 const portfolioFetcher = async ([url, holdings]: [string, any[]]) => {
   const response = await fetch(url, {
     method: 'POST',
@@ -73,13 +102,20 @@ const portfolioFetcher = async ([url, holdings]: [string, any[]]) => {
     throw new Error(`API error: ${response.statusText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  lsSet(LS_PERF_KEY, data);
+  return data;
 };
 
 export default function PersistentValuePage() {
   const [currentHoldings, setCurrentHoldings] = useState(DEFAULT_HOLDINGS);
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [livePricesLoading, setLivePricesLoading] = useState(false);
 
-  // Stable key for SWR: same symbols => same key (avoid refetch on every render)
+  // Hydrate from localStorage for instant render (SSR-safe)
+  const cachedPerf = typeof window !== 'undefined' ? lsGet(LS_PERF_KEY) : null;
+
+  // Stable key for SWR
   const perfKey = currentHoldings.length
     ? ['/api/portfolio/performance?force_refresh=false', currentHoldings]
     : null;
@@ -92,6 +128,7 @@ export default function PersistentValuePage() {
       dedupingInterval: 60000,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
+      fallbackData: cachedPerf || undefined,
     }
   );
 
@@ -100,21 +137,53 @@ export default function PersistentValuePage() {
     ? new Date(data.last_updated).toLocaleString()
     : '--';
 
-  // Handle refresh button - revalidate all three modules (mutate the same keys components use so they refetch)
+  // Fetch live/delayed prices from EODHD (~500ms)
+  const fetchLivePrices = useCallback(async () => {
+    if (!currentHoldings.length) return;
+    const symbols = currentHoldings.map(h => h.symbol).join(',');
+    setLivePricesLoading(true);
+    try {
+      const res = await fetch(`/api/prices/live?symbols=${symbols}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.prices) {
+          setLivePrices(json.prices);
+        }
+      }
+    } catch {
+      // Live price fetch failed - keep stale data
+    } finally {
+      setLivePricesLoading(false);
+    }
+  }, [currentHoldings]);
+
+  useEffect(() => {
+    fetchLivePrices();
+  }, [fetchLivePrices]);
+
+  // Merge live EODHD prices into portfolio data
+  const portfolioDataWithLive = portfolioData.map((row: any) => {
+    const live = livePrices[row.ticker];
+    if (live && live > 0) {
+      return { ...row, current_price: live };
+    }
+    return row;
+  });
+
   const handleRefresh = async () => {
     const symbolsStr = currentHoldings.map(h => h.symbol).sort().join(',');
     await Promise.all([
       mutate(['/api/portfolio/performance?force_refresh=false', currentHoldings]),
       mutate(['/api/benchmarks?force_refresh=false', symbolsStr]),
       mutate(['/api/portfolio/allocation', symbolsStr]),
+      fetchLivePrices(),
     ]);
   };
 
-  // Handle portfolio save
   const handlePortfolioSave = (holdings: any[]) => {
     console.log('Portfolio saved:', holdings);
     setCurrentHoldings(holdings);
-    // SWR will automatically refetch with new holdings
+    setLivePrices({});
   };
 
   return (
@@ -128,25 +197,31 @@ export default function PersistentValuePage() {
           {/* Title */}
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-50">
-              📊 Persistent Value Portfolio
+              Persistent Value Portfolio
             </h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               Value-focused investment strategy with long-term growth potential
             </p>
           </div>
 
-          {/* Refresh Button */}
+          {/* Refresh Button + Live Status */}
           <div className="flex flex-col gap-2">
             <button 
               onClick={handleRefresh}
-              disabled={isLoading}
+              disabled={isLoading && !cachedPerf}
               className="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 disabled:bg-gray-400 dark:bg-blue-500 dark:hover:bg-blue-600"
             >
-              {isLoading ? '⏳ Loading...' : '🔄 Refresh Data'}
+              {isLoading && !cachedPerf ? 'Loading...' : 'Refresh Data'}
             </button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Last updated: {lastUpdated}
             </p>
+            {livePricesLoading && (
+              <p className="text-xs text-blue-500 dark:text-blue-400">Fetching live prices...</p>
+            )}
+            {Object.keys(livePrices).length > 0 && !livePricesLoading && (
+              <p className="text-xs text-green-600 dark:text-green-400">Live prices active</p>
+            )}
           </div>
         </div>
 
@@ -160,14 +235,14 @@ export default function PersistentValuePage() {
             </div>
           )}
           <PortfolioPerformanceTable 
-            data={portfolioData}
-            isLoading={isLoading}
+            data={portfolioDataWithLive}
+            isLoading={isLoading && !cachedPerf}
           />
         </div>
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Benchmarks Section - uses same user symbols from currentHoldings */}
+        {/* Benchmarks Section */}
         <div className="mb-8">
           <Benchmarks 
             holdings={currentHoldings.map(h => ({
@@ -180,7 +255,7 @@ export default function PersistentValuePage() {
 
         <hr className="my-8 border-gray-200 dark:border-gray-800" />
 
-        {/* Portfolio Allocation Section - uses same user symbols from currentHoldings */}
+        {/* Portfolio Allocation Section */}
         <div className="mb-8">
           <PortfolioAllocation 
             portfolio={currentHoldings.map(h => ({
@@ -200,16 +275,16 @@ export default function PersistentValuePage() {
           />
         </div>
 
-        {/* Portfolio Fundamentals – OBQ + Momentum scores */}
+        {/* Portfolio Fundamentals */}
         <PortfolioFundamentalsTable symbols={currentHoldings.map(h => h.symbol)} />
 
-        {/* Portfolio Aggregated Metrics – Max / Median / Average / Min across 5 scores */}
+        {/* Portfolio Aggregated Metrics */}
         <PortfolioAggregatedMetricsTable symbols={currentHoldings.map(h => h.symbol)} />
 
-        {/* Portfolio Quality Radar Charts – one radar per stock, 5 scores */}
+        {/* Portfolio Quality Radar Charts */}
         <PortfolioQualityRadarCharts symbols={currentHoldings.map(h => h.symbol)} />
 
-        {/* Portfolio Trends – dynamic import (ssr:false) + error boundary */}
+        {/* Portfolio Trends */}
         <div className="mt-8">
           <PortfolioTrendsErrorBoundary>
             <PortfolioTrendsCharts symbols={currentHoldings.map(h => h.symbol)} />

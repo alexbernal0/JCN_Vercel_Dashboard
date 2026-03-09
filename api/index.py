@@ -4,11 +4,9 @@ FastAPI-based serverless function for Vercel
 
 This module provides portfolio performance data by:
 1. Querying MotherDuck for historical price data and fundamentals
-2. Fetching current prices from yfinance
 3. Calculating all performance metrics with persistent caching
 4. Implementing robust error handling
 
-Author: Manus AI
 Last Updated: 2026-02-16
 Architecture: FastAPI (Official Vercel Standard)
 """
@@ -77,6 +75,9 @@ from .sync_stage1 import run_stage1
 from .sync_stage2 import run_stage2
 from .sync_stage3 import run_stage3
 
+# Import live prices module
+from .live_prices import LivePricesResponse, fetch_live_prices
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,8 +85,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="JCN Portfolio Performance API",
-    description="Portfolio performance tracking with MotherDuck and yfinance",
-    version="2.0.0"
+    description="Portfolio performance tracking with MotherDuck (EOD) and EODHD (live)",
+    version="2.1.0"
 )
 
 # Add CORS middleware
@@ -113,6 +114,7 @@ async def root():
             "/api/benchmarks": "POST - Get portfolio benchmarks (vs SPY)",
             "/api/stock/prices": "POST - Get historical stock prices for chart",
             "/api/health": "GET - Health check",
+            "/api/prices/live": "GET - Live 15-min delayed prices from EODHD",
             "/api/sync/stage0": "GET - Data sync Stage 0 health checks",
             "/api/sync/stage1": "GET - Data sync Stage 1 ingest (EODHD -> DEV)",
             "/api/sync/stage2": "GET - Data sync Stage 2 validate and promote (DEV -> PROD)",
@@ -297,6 +299,27 @@ async def get_historical_stock_prices(request: StockPricesRequest):
         raise HTTPException(status_code=500, detail=f"Error fetching stock prices: {str(e)}")
 
 
+
+
+@app.get("/api/prices/live", response_model=LivePricesResponse)
+async def get_live_prices(symbols: str = ""):
+    """
+    Get live 15-min delayed prices from EODHD for portfolio symbols.
+    
+    Args:
+        symbols: Comma-separated ticker symbols (e.g. "AAPL,TSLA,SPMO")
+    
+    Returns:
+        LivePricesResponse with prices dict, timestamp, and any errors
+    """
+    try:
+        logger.info(f"Live prices request: {symbols}")
+        result = await fetch_live_prices(symbols)
+        logger.info(f"Live prices fetched: {len(result.prices)} symbols")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching live prices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching live prices: {str(e)}")
 
 
 @app.get("/api/sync/stage0")

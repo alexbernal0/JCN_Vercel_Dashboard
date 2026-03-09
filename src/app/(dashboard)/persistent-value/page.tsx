@@ -55,15 +55,17 @@ const DEFAULT_HOLDINGS = [
 
 // localStorage cache helpers (24-hour TTL)
 const LS_PERF_KEY = 'jcn_perf_cache';
+const LS_LIVE_KEY = 'jcn_live_cache';
 const LS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const LIVE_PRICE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-function lsGet(key: string): any | null {
+function lsGet(key: string, ttl: number = LS_TTL_MS): any | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (Date.now() - (parsed._ts ?? 0) > LS_TTL_MS) {
+    if (Date.now() - (parsed._ts ?? 0) > ttl) {
       localStorage.removeItem(key);
       return null;
     }
@@ -137,9 +139,17 @@ export default function PersistentValuePage() {
     ? new Date(data.last_updated).toLocaleString()
     : '--';
 
-  // Fetch live/delayed prices from EODHD (~500ms)
-  const fetchLivePrices = useCallback(async () => {
+  // Fetch live/delayed prices from EODHD (~500ms, cached 15 min)
+  const fetchLivePrices = useCallback(async (force = false) => {
     if (!currentHoldings.length) return;
+    // Check 15-minute localStorage cache unless forced (Refresh button)
+    if (!force) {
+      const cached = lsGet(LS_LIVE_KEY, LIVE_PRICE_TTL_MS);
+      if (cached && cached.prices) {
+        setLivePrices(cached.prices);
+        return;
+      }
+    }
     const symbols = currentHoldings.map(h => h.symbol).join(',');
     setLivePricesLoading(true);
     try {
@@ -148,6 +158,7 @@ export default function PersistentValuePage() {
         const json = await res.json();
         if (json.prices) {
           setLivePrices(json.prices);
+          lsSet(LS_LIVE_KEY, { prices: json.prices });
         }
       }
     } catch {
@@ -176,7 +187,7 @@ export default function PersistentValuePage() {
       mutate(['/api/portfolio/performance?force_refresh=false', currentHoldings]),
       mutate(['/api/benchmarks?force_refresh=false', symbolsStr]),
       mutate(['/api/portfolio/allocation', symbolsStr]),
-      fetchLivePrices(),
+      fetchLivePrices(true),
     ]);
   };
 

@@ -410,6 +410,15 @@ export default function StockAnalysisPage() {
     }
   };
 
+  // Auto-load NVDA on mount (default symbol)
+  const hasLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      loadAnalysis("NVDA");
+    }
+  }, [loadAnalysis]);
+
   // --------------- Chart options (memoized) ---------------
 
   // Module 2: Price vs SPY chart options
@@ -927,7 +936,7 @@ export default function StockAnalysisPage() {
 
             {/* ===== Module 10: Quality Scores ===== */}
             <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50">JCN Quality Scores</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50">JCN Scores</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">4-year average composite scoring (0-100)</p>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
                 {Object.entries(analysisData.quality_scores).map(([key, val]) => (

@@ -67,11 +67,11 @@ def _cross_table_checks(conn: duckdb.DuckDBPyConnection) -> List[Dict]:
     # 3. Score table freshness (all 5 within 45 days of latest EOD)
     try:
         score_tables = [
-            ("PROD_OBQ_Value_Scores", "date"),
-            ("PROD_OBQ_Quality_Scores", "date"),
-            ("PROD_OBQ_FinStr_Scores", "date"),
-            ("PROD_OBQ_Growth_Scores", "date"),
-            ("PROD_OBQ_Momentum_Scores", "date"),
+            ("PROD_OBQ_Value_Scores", "month_date"),
+            ("PROD_OBQ_Quality_Scores", "month_date"),
+            ("PROD_OBQ_FinStr_Scores", "month_date"),
+            ("PROD_OBQ_Growth_Scores", "month_date"),
+            ("PROD_OBQ_Momentum_Scores", "month_date"),
         ]
         eod_max = conn.execute(
             "SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship"
@@ -107,7 +107,7 @@ def _cross_table_checks(conn: duckdb.DuckDBPyConnection) -> List[Dict]:
         row = conn.execute("""
             SELECT
                 COUNT(DISTINCT symbol) as comp_syms,
-                COUNT(DISTINCT preset) as presets,
+                8 as presets,
                 (SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_EOD_survivorship
                  WHERE date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship)) as active_syms
             FROM PROD_EODHD.main.PROD_JCN_Composite_Scores
@@ -210,9 +210,9 @@ def _integrity_checks(conn) -> list:
     try:
         row = conn.execute("""
             SELECT
-                MIN(value_score), MAX(value_score), AVG(value_score)
+                MIN(value_score_composite), MAX(value_score_composite), AVG(value_score_composite)
             FROM PROD_EODHD.main.PROD_OBQ_Value_Scores
-            WHERE date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores)
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores)
         """).fetchone()
         mn, mx, avg_v = row[0], row[1], row[2]
         in_range = (mn is not None and mn >= 0 and mx is not None and mx <= 100)

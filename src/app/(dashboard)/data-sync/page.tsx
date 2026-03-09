@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { StageCard, type StageConfig, type StageCardHandle, type StageStatus } from '@/components/dashboard/data-sync/StageCard'
 
 const stages: StageConfig[] = [
@@ -46,6 +46,32 @@ export default function DataSyncPage() {
   const [hasRunAll, setHasRunAll] = useState(false)
   const [isRunningAll, setIsRunningAll] = useState(false)
   const [runAllStatus, setRunAllStatus] = useState<StageStatus>('idle')
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string>('Checking status...')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    async function fetchSyncStatus() {
+      try {
+        const res = await fetch('/api/sync/stage0', { signal: controller.signal })
+        if (!res.ok) { setSyncStatusMsg('Ready to sync'); return }
+        const data = await res.json()
+        const freshness = data?.checks?.schemas_and_tables?.detail?.freshness
+        const survDate = freshness?.['PROD_EODHD.main.PROD_EOD_survivorship']
+        const syncLog = data?.checks?.last_sync
+        if (syncLog?.detail?.last_success) {
+          setSyncStatusMsg('Last sync: ' + syncLog.detail.last_success)
+        } else if (survDate) {
+          setSyncStatusMsg('PROD data through ' + survDate + ' — ready to sync')
+        } else {
+          setSyncStatusMsg('Ready to sync')
+        }
+      } catch {
+        setSyncStatusMsg('Ready to sync')
+      }
+    }
+    fetchSyncStatus()
+    return () => { controller.abort() }
+  }, [hasRunAll])
 
   const runAllStages = useCallback(async () => {
     setIsRunningAll(true)
@@ -89,7 +115,7 @@ export default function DataSyncPage() {
                 🔄 Data Sync Pipeline
               </h1>
               <p className="mt-2 text-gray-600 dark:text-gray-400">
-                Mission-critical 4-stage data synchronization — EODHD → DEV → PROD with validation gates
+                {syncStatusMsg}
               </p>
             </div>
             <button

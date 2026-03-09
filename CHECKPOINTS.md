@@ -4,7 +4,39 @@ This document tracks stable checkpoints for rollback and branch-from points.
 
 ---
 
-## v1.2.0-fundamentals-aggregated (Current)
+## v1.3.0-data-sync-pipeline (Current)
+
+**Date:** March 9, 2026
+**Tag:** `v1.3.0-data-sync-pipeline`
+
+### What's Working
+
+- Everything in v1.2.0 PLUS:
+- Data Sync Pipeline (4 stages, live production, all verified)
+- Stage 0: Health and Inventory (8 diagnostic checks)
+- Stage 1: EODHD Bulk Ingest (prices + ETFs + fundamentals to DEV)
+- Stage 2: Validate and Promote (DQ audit + DEV to PROD + weekly OHLC)
+- Stage 3: Audit and Report (integrity, self-healing, recommendations)
+- Dynamic header status (PROD freshness + ready to sync)
+- Database fully normalized (121.7M+ rows, all .US, zero dupes)
+- JCN Composite Scores (8 presets, 4.48M rows)
+- Prime Directive v1.0 enforced across all stages
+
+### Rollback
+
+```bash
+git checkout v1.3.0-data-sync-pipeline
+```
+
+### Full Changelog
+
+See [CHECKPOINT_v1.3.0.md](./CHECKPOINT_v1.3.0.md).
+
+---
+
+
+
+## v1.2.0-fundamentals-aggregated
 
 **Date:** February 18, 2026  
 **Tag:** `v1.2.0-fundamentals-aggregated`

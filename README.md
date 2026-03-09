@@ -1,8 +1,8 @@
 # JCN Financial Dashboard (Persistent Value)
 
 **Status:** ✅ Production Ready  
-**Version:** 1.2.0  
-**Last Updated:** February 18, 2026
+**Version:** 1.3.0  
+**Last Updated:** March 9, 2026
 
 Serverless portfolio dashboard: Next.js frontend, FastAPI backend, MotherDuck (DuckDB) for all market and score data.
 
@@ -37,7 +37,7 @@ See [TECH_STACK.md](./TECH_STACK.md) for a full breakdown.
 
 | Doc | Purpose |
 |-----|---------|
-| [CHECKPOINT_v1.2.0.md](./CHECKPOINT_v1.2.0.md) | Current release snapshot; rollback point |
+| [CHECKPOINT_v1.3.0.md](./CHECKPOINT_v1.3.0.md) | Current release snapshot; rollback point |
 | [CHECKPOINTS.md](./CHECKPOINTS.md) | All checkpoint tags and rollback commands |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | High-level structure, config, endpoints |
 | [DATA_FLOW.md](./DATA_FLOW.md) | How data moves frontend → API → MotherDuck |
@@ -100,13 +100,13 @@ pnpm install
 
 ---
 
-## Rollback to v1.2.0
+## Rollback to v1.3.0
 
 ```bash
-git checkout v1.2.0-fundamentals-aggregated
+git checkout v1.3.0-data-sync-pipeline
 ```
 
-See [CHECKPOINTS.md](./CHECKPOINTS.md) for other tags.
+See [CHECKPOINTS.md](./CHECKPOINTS.md) for other tags (v1.2.0, v1.1.0, v1.0.0).
 
 ---
 

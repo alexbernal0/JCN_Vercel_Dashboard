@@ -1,8 +1,8 @@
 # JCN Financial Dashboard – Architecture
 
 **Status:** ✅ Production Ready  
-**Version:** 1.2.0  
-**Last Updated:** February 18, 2026
+**Version:** 1.3.0  
+**Last Updated:** March 9, 2026
 
 ---
 
@@ -44,7 +44,7 @@ JCN_Vercel_Dashboard/
 │   └── lib/swr-provider.tsx       # SWR config
 ├── scripts/                       # DB helpers (describe scores, check fundamentals)
 ├── docs/                          # Procedures, DB, deploy
-├── CHECKPOINT_v1.2.0.md           # Rollback snapshot
+├── CHECKPOINT_v1.3.0.md           # Rollback snapshot (data-sync)
 ├── CHECKPOINTS.md
 ├── README.md
 ├── ARCHITECTURE.md                # This file
@@ -101,6 +101,10 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | API info + endpoint list |
+| GET | `/api/sync/stage0` | Health and Inventory (8 checks) |
+| GET | `/api/sync/stage1` | EODHD Ingest (bulk to DEV) |
+| GET | `/api/sync/stage2` | Validate and Promote (DEV to PROD) |
+| GET | `/api/sync/stage3` | Audit and Report (integrity + self-healing) |
 | GET | `/api/health` | Health; MOTHERDUCK_TOKEN check |
 | POST | `/api/portfolio/performance` | Performance (body: `holdings`) |
 | POST | `/api/portfolio/allocation` | Allocation (body: `portfolio`) |

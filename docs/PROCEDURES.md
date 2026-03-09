@@ -1,7 +1,7 @@
 # Procedures – JCN Financial Dashboard
 
-**Version:** 1.2.0  
-**Last Updated:** February 18, 2026
+**Version:** 1.3.0  
+**Last Updated:** March 9, 2026
 
 Runbooks for deploy, rollback, env, and database helpers.
 
@@ -27,6 +27,53 @@ API runs as serverless on Vercel; locally, Next rewrites can point to a local Py
 
 ---
 
+## Data Sync Pipeline
+
+### Running a sync (production)
+
+1. Go to https://jcn-vercel-dashboardv4.vercel.app/data-sync
+2. Click **RUN ALL** to execute all 4 stages sequentially
+3. Or run individual stages by expanding each card and clicking Run
+
+### Stage execution order
+
+| Stage | Name | Duration | What it does |
+|-------|------|----------|--------------|
+| 0 | Health and Inventory | ~13s | Connectivity, table presence, gap analysis |
+| 1 | Ingest | ~3-60s | EODHD bulk download to DEV tables |
+| 2 | Validate and Promote | ~7s | DQ audit, DEV to PROD promotion, weekly OHLC |
+| 3 | Audit and Report | ~11s | Cross-table checks, integrity, self-healing |
+
+### API endpoints (GET, no auth needed)
+
+- `/api/sync/stage0` -- Health check
+- `/api/sync/stage1` -- Ingest
+- `/api/sync/stage2` -- Validate and Promote
+- `/api/sync/stage3` -- Audit and Report
+
+### Manual sync via curl
+
+```bash
+curl https://jcn-vercel-dashboardv4.vercel.app/api/sync/stage0
+curl https://jcn-vercel-dashboardv4.vercel.app/api/sync/stage1
+curl https://jcn-vercel-dashboardv4.vercel.app/api/sync/stage2
+curl https://jcn-vercel-dashboardv4.vercel.app/api/sync/stage3
+```
+
+### Timeout notes
+
+Vercel Pro default: 60s per function. Stages 1 and 2 may need 300s on heavy sync days (multiple trading days to catch up). Configure maxDuration in Vercel dashboard if needed.
+
+### Environment variables for sync
+
+| Variable | Required by | Purpose |
+|----------|-------------|---------|
+| MOTHERDUCK_TOKEN | All stages | MotherDuck cloud DB |
+| EODHD_API_KEY | Stage 1 | EODHD market data API |
+
+
+---
+
 ## Rollback to a checkpoint
 
 Checkpoints are tagged in git. To revert the app to a known good state:
@@ -44,7 +91,7 @@ git checkout -b fix/rollback v1.2.0-fundamentals-aggregated
 
 Then redeploy (e.g. push the branch and promote on Vercel, or push to main after reset).
 
-**Checkpoint list:** See root [CHECKPOINTS.md](../CHECKPOINTS.md) and [CHECKPOINT_v1.2.0.md](../CHECKPOINT_v1.2.0.md).
+**Checkpoint list:** See root [CHECKPOINTS.md](../CHECKPOINTS.md) and [CHECKPOINT_v1.3.0.md](../CHECKPOINT_v1.3.0.md).
 
 ---
 
@@ -90,6 +137,7 @@ Run scripts from repo root with `python3 scripts/...` and MOTHERDUCK_TOKEN set.
 
 ## Verification after deploy
 
-- [ ] App loads: https://jcn-tremor.vercel.app
-- [ ] API health: https://jcn-tremor.vercel.app/api/health (check `motherduck_configured`)
+- [ ] App loads: https://jcn-vercel-dashboardv4.vercel.app
+- [ ] API health: https://jcn-vercel-dashboardv4.vercel.app/api/health
+- [ ] Data Sync page: https://jcn-vercel-dashboardv4.vercel.app/data-sync (RUN ALL completes)
 - [ ] Persistent Value page loads and shows Performance, Benchmarks, Allocation, Stock Price Comparison, Fundamentals, Aggregated Metrics

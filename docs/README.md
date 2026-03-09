@@ -1,7 +1,7 @@
 # JCN Financial Dashboard – Documentation Index
 
-**Version:** 1.2.0  
-**Last Updated:** February 18, 2026  
+**Version:** 1.3.0  
+**Last Updated:** March 9, 2026  
 **Status:** Production-ready
 
 Use this index so another AI or developer can onboard and find every procedure and reference.
@@ -12,7 +12,7 @@ Use this index so another AI or developer can onboard and find every procedure a
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| [../CHECKPOINT_v1.2.0.md](../CHECKPOINT_v1.2.0.md) | Current release snapshot; rollback point | All |
+| [../CHECKPOINT_v1.3.0.md](../CHECKPOINT_v1.3.0.md) | Current release snapshot; rollback point | All |
 | [../CHECKPOINTS.md](../CHECKPOINTS.md) | All checkpoint tags and rollback commands | All |
 | [../README.md](../README.md) | Repo entry point, quick start, API list | All |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | High-level structure, config, endpoints | Devs |
@@ -56,8 +56,8 @@ Use this index so another AI or developer can onboard and find every procedure a
 
 ## External links
 
-- **Production:** https://jcn-tremor.vercel.app
-- **API health:** https://jcn-tremor.vercel.app/api/health
+- **Production:** https://jcn-vercel-dashboardv4.vercel.app
+- **API health:** https://jcn-vercel-dashboardv4.vercel.app/api/health
 - **GitHub:** https://github.com/alexbernal0/JCN_Vercel_Dashboard
 - **Vercel project:** https://vercel.com/obsidianquantitative/jcn-tremor
 

@@ -1,7 +1,7 @@
 # Data Flow & Architecture Guide
 
-**Last Updated:** February 18, 2026  
-**Current as of:** v1.2.0  
+**Last Updated:** March 9, 2026  
+**Current as of:** v1.3.0  
 **For:** JCN Financial Dashboard
 
 ---
@@ -67,6 +67,63 @@ graph TB
 ```
 
 ---
+
+
+---
+
+## Data Sync Pipeline Flow (v1.3.0)
+
+The sync pipeline runs on Vercel serverless, connecting to EODHD API and MotherDuck cloud.
+
+### Sync Pipeline Architecture
+
+```
+User clicks RUN ALL on /data-sync page
+    |
+    v
+Stage 0: Health and Inventory
+    |-- MotherDuck connectivity check
+    |-- EODHD API key validation
+    |-- Table presence and freshness audit
+    |-- Symbol format compliance (PD-03)
+    |-- Duplicate detection
+    v (gate: can_proceed = true)
+Stage 1: EODHD Ingest
+    |-- Calculate sync window (last date to today)
+    |-- EODHD bulk API: all US symbols per date
+    |-- Inline validation (nulls, prices, MF/OTC filter)
+    |-- Separate stocks from ETFs
+    |-- INSERT INTO DEV tables (idempotent)
+    v (gate: gate_passed = true)
+Stage 2: Validate and Promote
+    |-- Phase 1: 6-point DQ audit on DEV
+    |-- Phase 2: DEV to PROD via ANTI JOIN (new rows only)
+    |-- Phase 3: Incremental Weekly OHLC rebuild
+    |-- Phase 4: Post-validation + SYNC_LOG entry
+    v (gate: all_pass = true)
+Stage 3: Audit and Report
+    |-- Cross-table consistency (4 checks)
+    |-- PROD integrity certification (4 checks)
+    |-- Self-healing scan (3 checks)
+    |-- Recommendations engine
+    v (read-only, always can_proceed)
+```
+
+### Data Sources
+
+| Source | Endpoint | Data |
+|--------|----------|------|
+| EODHD API | eod-bulk-last-day/US | All US symbols daily OHLC |
+| MotherDuck | DEV_EODHD_DATA | Staging tables |
+| MotherDuck | PROD_EODHD | Production tables (121.7M+ rows) |
+
+### Key Design Decisions
+
+1. **DEV-first writes**: All data lands in DEV, validated, then promoted to PROD (PD-04)
+2. **ANTI JOIN promotion**: Only new rows are inserted, never duplicates (PD-07)
+3. **Idempotent stages**: Safe to re-run any stage at any time
+4. **Gate checks**: Each stage returns can_proceed flag; pipeline stops on failure
+5. **Self-healing**: Stage 3 detects and recommends fixes for common issues
 
 ## 🏗️ Architecture Explained (Simple Terms)
 

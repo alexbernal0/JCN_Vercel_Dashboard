@@ -228,12 +228,18 @@ class CacheManager:
         latest_eod AS (
             SELECT 
                 symbol,
-                adjusted_close as latest_eod_close,
+                adjusted_close as latest_eod_close
+            FROM combined_eod
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+        ),
+        sector_backfill AS (
+            SELECT 
+                symbol,
                 gics_sector,
                 industry,
                 market_cap
             FROM combined_eod
-            WHERE date = (SELECT MAX(date) FROM combined_eod)
+            WHERE gics_sector IS NOT NULL
             QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
         ),
         previous_close AS (
@@ -241,8 +247,7 @@ class CacheManager:
                 symbol,
                 adjusted_close as prev_close
             FROM combined_eod
-            WHERE date < (SELECT MAX(date) FROM combined_eod)
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 2
         ),
         ytd_start AS (
             SELECT 
@@ -272,15 +277,16 @@ class CacheManager:
         SELECT 
             l.symbol,
             l.latest_eod_close,
-            l.gics_sector,
-            l.industry,
-            l.market_cap,
+            s.gics_sector,
+            s.industry,
+            s.market_cap,
             p.prev_close,
             y.ytd_start_price,
             ya.year_ago_price,
             w.week_52_high,
             w.week_52_low
         FROM latest_eod l
+        LEFT JOIN sector_backfill s ON l.symbol = s.symbol
         LEFT JOIN previous_close p ON l.symbol = p.symbol
         LEFT JOIN ytd_start y ON l.symbol = y.symbol
         LEFT JOIN year_ago ya ON l.symbol = ya.symbol

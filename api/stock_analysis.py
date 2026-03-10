@@ -471,60 +471,35 @@ def _build_valuation(latest_q: dict) -> dict:
     }
 
 
-def _build_quality_scores(annual: dict) -> dict:
-    """Build composite quality scores (Module 10) from recent 4 years."""
-    years = sorted(annual.keys(), reverse=True)[:4]
-    if not years:
-        return {}
-
-    # Average metrics over last 4 years
-    def avg_metric(key):
-        vals = [annual[y].get(key) for y in years if annual[y].get(key) is not None]
-        return sum(vals) / len(vals) if vals else None
-
-    # Score each dimension 0-100
-    def _score(val, low, high):
-        if val is None:
-            return 50
-        clamped = max(low, min(high, val))
-        return round((clamped - low) / (high - low) * 100)
-
-    # Compute averages
-    gm = avg_metric("is_grossProfit")
-    rev = avg_metric("is_totalRevenue")
-    ni = avg_metric("is_netIncome")
-    eq = avg_metric("bs_totalStockholderEquity")
-    ta = avg_metric("bs_totalAssets")
-    fcf = avg_metric("cf_freeCashFlow")
-    ltd = avg_metric("bs_longTermDebt")
-    ca = avg_metric("bs_totalCurrentAssets")
-    cl = avg_metric("bs_totalCurrentLiabilities")
-
-    gross_margin = _safe_div(gm, rev)
-    roe = _safe_div(ni, eq)
-    roa = _safe_div(ni, ta)
-    fcf_margin = _safe_div(fcf, rev)
-    debt_ratio = _safe_div(ltd, eq)
-    current_ratio = _safe_div(ca, cl)
-
-    # Revenue growth (latest vs 4 years ago)
-    rev_growth = None
-    if len(years) >= 2:
-        newest = annual[years[0]].get("is_totalRevenue")
-        oldest = annual[years[-1]].get("is_totalRevenue")
-        rev_growth = _safe_div(newest, oldest)
-        if rev_growth:
-            rev_growth = rev_growth - 1  # Convert ratio to growth rate
-
-    scores = {
-        "profitability": _score(gross_margin, 0, 0.7),
-        "returns": _score(roe, -0.1, 0.5),
-        "efficiency": _score(roa, -0.05, 0.2),
-        "cash_generation": _score(fcf_margin, -0.1, 0.3),
-        "financial_health": _score(current_ratio, 0.5, 3.0),
-        "growth": _score(rev_growth, -0.1, 0.3),
+def _build_quality_scores(conn, symbol_md: str) -> dict:
+    """Fetch actual JCN factor scores from PROD score tables (Module 10).
+    Returns value, quality, financial_strength, growth, momentum + jcn_composite.
+    """
+    SCORE_TABLES = {
+        "value": ("PROD_EODHD.main.PROD_OBQ_Value_Scores", "value_score_composite"),
+        "quality": ("PROD_EODHD.main.PROD_OBQ_Quality_Scores", "quality_score_composite"),
+        "financial_strength": ("PROD_EODHD.main.PROD_OBQ_FinStr_Scores", "finstr_score_composite"),
+        "growth": ("PROD_EODHD.main.PROD_OBQ_Growth_Scores", "growth_score_composite"),
+        "momentum": ("PROD_EODHD.main.PROD_OBQ_Momentum_Scores", "momentum_score_composite"),
     }
-    scores["overall"] = round(sum(scores.values()) / len(scores))
+    scores = {}
+    for score_key, (table_name, col_name) in SCORE_TABLES.items():
+        try:
+            row = conn.execute(f"""
+                SELECT {col_name}
+                FROM {table_name}
+                WHERE symbol = ?
+                  AND month_date = (SELECT MAX(month_date) FROM {table_name})
+            """, [symbol_md]).fetchone()
+            if row and row[0] is not None:
+                scores[score_key] = round(float(row[0]), 1)
+        except Exception as e:
+            logger.warning("Score table %s query failed for %s: %s", table_name, symbol_md, e)
+
+    # JCN Composite = average of all 5 individual scores
+    vals = [v for v in scores.values() if v is not None]
+    if vals:
+        scores["jcn_composite"] = round(sum(vals) / len(vals), 1)
     return scores
 
 
@@ -598,7 +573,7 @@ def get_stock_analysis(symbol: str) -> StockAnalysisResponse:
         cash_flows = _build_financial_statement(annual, "cashflow")
         growth = _build_growth_rates(annual)
         valuation = _build_valuation(latest_q)
-        quality_scores = _build_quality_scores(annual)
+        quality_scores = _build_quality_scores(conn, symbol_md)
 
         # 6. Build response
         response = StockAnalysisResponse(

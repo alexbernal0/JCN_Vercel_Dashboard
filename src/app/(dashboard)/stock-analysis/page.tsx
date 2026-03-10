@@ -484,8 +484,8 @@ export default function StockAnalysisPage() {
   const radarChartOption = useMemo(() => {
     if (!analysisData?.quality_scores) return null;
     const qs = analysisData.quality_scores;
-    const dims = ["profitability", "returns", "efficiency", "cash_generation", "financial_health", "growth"];
-    const labels = ["Profitability", "Returns", "Efficiency", "Cash Gen", "Financial Health", "Growth"];
+    const dims = ["value", "quality", "financial_strength", "growth", "momentum"];
+    const labels = ["Value", "Quality", "Financial Strength", "Growth", "Momentum"];
     return {
       radar: {
         indicator: labels.map((name) => ({ name, max: 100 })),
@@ -937,12 +937,21 @@ export default function StockAnalysisPage() {
             {/* ===== Module 10: Quality Scores ===== */}
             <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50">JCN Scores</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">4-year average composite scoring (0-100)</p>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-                {Object.entries(analysisData.quality_scores).map(([key, val]) => (
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">JCN Factor Scores (0-100)</p>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {([
+                  ["jcn_composite", "JCN Composite"],
+                  ["quality", "Quality"],
+                  ["financial_strength", "Financial Strength"],
+                  ["growth", "Growth"],
+                  ["momentum", "Momentum"],
+                  ["value", "Value"],
+                ] as [string, string][]).map(([key, label]) => (
                   <div key={key} className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800">
-                    <p className="text-xs capitalize text-gray-500 dark:text-gray-400">{key.replace(/_/g, " ")}</p>
-                    <p className={`mt-1 text-lg font-bold ${scoreColor(Number(val))}`}>{String(val)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+                    <p className={`mt-1 text-lg font-bold ${scoreColor(Number(analysisData.quality_scores[key] ?? 0))}`}>
+                      {analysisData.quality_scores[key] != null ? String(analysisData.quality_scores[key]) : "--"}
+                    </p>
                   </div>
                 ))}
               </div>

@@ -36,7 +36,7 @@ const TOC: TocItem[] = [
     { id: "sa-financial-statements", label: "Financial Statements" },
     { id: "sa-growth-rates", label: "Growth Rates" },
     { id: "sa-valuation", label: "Valuation Ratios" },
-    { id: "sa-jcn-scores", label: "JCN Quality Scores" },
+    { id: "sa-jcn-scores", label: "JCN Factor Scores" },
   ]},
   { id: "database", label: "Database & Schema", children: [
     { id: "db-motherduck", label: "MotherDuck" },
@@ -555,35 +555,29 @@ Net Change in Cash`}</CodeBlock>
               </tbody>
             </table>
 
-            <SubHeader id="sa-jcn-scores">JCN Quality Scores (Module 10)</SubHeader>
+            <SubHeader id="sa-jcn-scores">JCN Factor Scores (Module 10)</SubHeader>
             <Paragraph>
-              Composite quality scores computed from the most recent 4 years of fundamental data. Each dimension is scored 0-100 by normalizing a key ratio to a predefined range. The overall score is the simple average of all six dimensions.
+              Five precomputed composite factor scores fetched from PROD score tables (computed monthly). Each score is 0-100. The JCN Composite is the simple average of all five factor scores. Displayed as score cards and a 5-axis radar chart.
             </Paragraph>
             <table className="mb-4 w-full text-sm">
               <thead><tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="py-2 pr-4 text-left text-xs font-medium uppercase text-gray-500">Dimension</th>
-                <th className="py-2 px-4 text-left text-xs font-medium uppercase text-gray-500">Input Metric</th>
-                <th className="py-2 px-4 text-left text-xs font-medium uppercase text-gray-500">Range [Low, High]</th>
+                <th className="py-2 pr-4 text-left text-xs font-medium uppercase text-gray-500">Score</th>
+                <th className="py-2 px-4 text-left text-xs font-medium uppercase text-gray-500">Source Table</th>
                 <th className="py-2 pl-4 text-left text-xs font-medium uppercase text-gray-500">What it Measures</th>
               </tr></thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800/50">
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Profitability</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">Gross Margin</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[0%, 70%]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Pricing power and cost efficiency</td></tr>
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Returns</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">ROE (4yr avg)</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[-10%, 50%]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Shareholder return generation</td></tr>
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Efficiency</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">ROA (4yr avg)</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[-5%, 20%]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Asset utilization effectiveness</td></tr>
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Cash Generation</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">FCF Margin (4yr avg)</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[-10%, 30%]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Ability to convert revenue to free cash</td></tr>
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Financial Health</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">Current Ratio (4yr avg)</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[0.5x, 3.0x]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Short-term liquidity and solvency</td></tr>
-                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Growth</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">Revenue CAGR (4yr)</td><td className="py-2 px-4"><code className="rounded bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">[-10%, 30%]</code></td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Top-line growth trajectory</td></tr>
+                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Value</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">PROD_OBQ_Value_Scores</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Ranks stocks by valuation attractiveness (P/E, P/B, EV/EBITDA, etc.)</td></tr>
+                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Quality</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">PROD_OBQ_Quality_Scores</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Business quality via margins, ROE, earnings stability</td></tr>
+                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Financial Strength</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">PROD_OBQ_FinStr_Scores</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Balance sheet health, debt coverage, liquidity</td></tr>
+                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Growth</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">PROD_OBQ_Growth_Scores</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Revenue growth, earnings growth, forward estimates</td></tr>
+                <tr><td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">Momentum</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">PROD_OBQ_Momentum_Scores</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Price momentum signal based on relative strength</td></tr>
+                <tr><td className="py-2 pr-4 font-semibold text-blue-600 dark:text-blue-400">JCN Composite</td><td className="py-2 px-4 text-gray-600 dark:text-gray-400">Average of all 5</td><td className="py-2 pl-4 text-gray-600 dark:text-gray-400">Overall factor score = (V + Q + FS + G + M) / 5</td></tr>
               </tbody>
             </table>
             <FormulaBlock
-              label="Dimension Score"
-              formula="score = round((clamp(value, low, high) - low) / (high - low) * 100)"
-              note="Value clamped to [low, high], then linearly mapped to 0-100. Score of 50 = median of the range."
-            />
-            <FormulaBlock
-              label="Overall Score"
-              formula="overall = round(mean(profitability, returns, efficiency, cash_gen, health, growth))"
-              note="Simple average of all 6 dimension scores. Displayed as the center value on the radar chart."
+              label="JCN Composite Score"
+              formula="jcn_composite = (value + quality + financial_strength + growth + momentum) / 5"
+              note="Each factor score is precomputed monthly from fundamental data and stored in PROD score tables (PROD_OBQ_*_Scores). The JCN Composite is the simple average of all five."
             />
           </section>
 

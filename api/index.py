@@ -24,7 +24,7 @@ except Exception:
     pass
 
 import logging
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import portfolio performance module
@@ -74,6 +74,8 @@ from .sync_stage0 import run_stage0
 from .sync_stage1 import run_stage1
 from .sync_stage2 import run_stage2
 from .sync_stage3 import run_stage3
+from .sync_cron import run_cron_pipeline
+from .sync_history import get_sync_history
 
 # Import live prices module
 from .live_prices import LivePricesResponse, fetch_live_prices
@@ -135,7 +137,9 @@ async def root():
             "/api/sync/stage3": "GET - Data sync Stage 3 audit and report",
             "/api/stock/search": "GET - Search stocks in investable universe (autocomplete)",
             "/api/stock/universe-check": "GET - Check if symbol is in investable universe",
-            "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)"
+            "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)",
+            "/api/sync/cron": "GET - Cron-triggered full pipeline (secured with CRON_SECRET)",
+            "/api/sync/history": "GET - Recent sync run history"
         }
     }
 
@@ -444,6 +448,39 @@ async def sync_stage3():
     except Exception as e:
         logger.error(f"Error in sync stage 3: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Stage 3 audit failed: {str(e)}")
+
+
+@app.get("/api/sync/cron")
+async def sync_cron(request: Request):
+    """
+    Cron-triggered full pipeline: stages 0→1→2→3.
+    Secured with CRON_SECRET — Vercel sends Authorization: Bearer <secret>.
+    """
+    cron_secret = os.getenv("CRON_SECRET", "")
+    if cron_secret:
+        auth = request.headers.get("authorization", "")
+        if auth != f"Bearer {cron_secret}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        logger.info("Cron pipeline triggered")
+        result = await run_cron_pipeline()
+        logger.info(f"Cron pipeline finished: {result.get('overall_status')}")
+        return result
+    except Exception as e:
+        logger.error(f"Error in cron pipeline: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Cron pipeline failed: {str(e)}")
+
+
+@app.get("/api/sync/history")
+async def sync_history():
+    """Return last 4 sync runs for the dashboard history table."""
+    try:
+        result = await get_sync_history(limit=4)
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching sync history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync history failed: {str(e)}")
 
 
 # Vercel serverless function handler

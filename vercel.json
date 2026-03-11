@@ -4,5 +4,11 @@
       "excludeFiles": "{.next,.git,node_modules}/**",
       "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/sync/cron",
+      "schedule": "0 2 * * *"
+    }
+  ]
 }

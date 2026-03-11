@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { siteConfig } from "./siteConfig"
@@ -9,6 +9,12 @@ const inter = Inter({
   display: "swap",
   variable: "--font-inter",
 })
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://jcn-tremor.vercel.app"),
@@ -46,9 +52,7 @@ export default function RootLayout({
         className={`${inter.className} antialiased selection:bg-indigo-100 selection:text-indigo-700`}
         suppressHydrationWarning
       >
-        <SWRProvider>
-          {children}
-        </SWRProvider>
+        <SWRProvider>{children}</SWRProvider>
       </body>
     </html>
   )

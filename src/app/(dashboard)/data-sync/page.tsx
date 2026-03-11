@@ -165,7 +165,7 @@ export default function DataSyncPage() {
         : "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
 
   return (
-    <div className="min-h-screen bg-white p-8 dark:bg-gray-950">
+    <div className="min-h-screen bg-white p-4 md:p-8 dark:bg-gray-950">
       <div className="mx-auto max-w-5xl">
         {/* Header */}
         <div className="mb-8">

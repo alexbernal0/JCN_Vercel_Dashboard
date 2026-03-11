@@ -1,23 +1,34 @@
-"use client";
+"use client"
 
-import React, { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
-import useSWR from "swr";
+import React, { useMemo } from "react"
+import ReactECharts from "echarts-for-react"
+import useSWR from "swr"
 
 const FUNDAMENTALS_FETCHER = async (url: string, symbols: string[]) => {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ symbols }),
-  });
-  if (!res.ok) throw new Error("Failed to load fundamentals");
-  return res.json();
-};
+  })
+  if (!res.ok) throw new Error("Failed to load fundamentals")
+  return res.json()
+}
 
 /** Symbols to omit from radar charts (ETFs). Add more as needed. */
 const ETF_SYMBOLS = new Set([
-  "SPMO", "SPY", "QQQ", "IWM", "DIA", "VOO", "VTI", "IVV", "VTV", "VUG", "VB", "VO",
-]);
+  "SPMO",
+  "SPY",
+  "QQQ",
+  "IWM",
+  "DIA",
+  "VOO",
+  "VTI",
+  "IVV",
+  "VTV",
+  "VUG",
+  "VB",
+  "VO",
+])
 
 const RADAR_INDICATORS = [
   { name: "Value", max: 100 },
@@ -25,48 +36,49 @@ const RADAR_INDICATORS = [
   { name: "Financial\nStrength", max: 100 },
   { name: "Quality", max: 100 },
   { name: "Momentum", max: 100 },
-] as const;
+] as const
 
 function toNum(v: unknown): number {
-  if (v != null && typeof v === "number" && Number.isFinite(v)) return v;
-  const n = typeof v === "string" ? Number(v) : Number(v);
-  return Number.isFinite(n) ? n : 0;
+  if (v != null && typeof v === "number" && Number.isFinite(v)) return v
+  const n = typeof v === "string" ? Number(v) : Number(v)
+  return Number.isFinite(n) ? n : 0
 }
 
 interface PortfolioQualityRadarChartsProps {
-  symbols: string[];
+  symbols: string[]
 }
 
 export default function PortfolioQualityRadarCharts({
   symbols,
 }: PortfolioQualityRadarChartsProps) {
-  const symbolsStr = symbols.length > 0 ? [...symbols].sort().join(",") : null;
-  const key = symbolsStr ? ["/api/portfolio/fundamentals", symbolsStr] : null;
+  const symbolsStr = symbols.length > 0 ? [...symbols].sort().join(",") : null
+  const key = symbolsStr ? ["/api/portfolio/fundamentals", symbolsStr] : null
 
   const { data, error, isLoading } = useSWR(
     key,
-    ([url, _]: [string, string]) => FUNDAMENTALS_FETCHER(url, symbolsStr!.split(",")),
-    { revalidateOnFocus: false, dedupingInterval: 60000 }
-  );
+    ([url, _]: [string, string]) =>
+      FUNDAMENTALS_FETCHER(url, symbolsStr!.split(",")),
+    { revalidateOnFocus: false, dedupingInterval: 60000 },
+  )
 
-  const rows = (data?.data ?? []) as Record<string, unknown>[];
-  const apiError = data?.error ?? error?.message;
+  const rows = (data?.data ?? []) as Record<string, unknown>[]
+  const apiError = data?.error ?? error?.message
 
   const charts = useMemo(() => {
     return rows
       .filter((r) => r && String(r.symbol))
       .map((row) => {
-        const symbol = String(row.symbol).toUpperCase();
-        const value = toNum(row.value);
-        const growth = toNum(row.growth);
-        const financial_strength = toNum(row.financial_strength);
-        const quality = toNum(row.quality);
-        const momentum = toNum(row.momentum);
-        const values = [value, growth, financial_strength, quality, momentum];
-        return { symbol, values };
+        const symbol = String(row.symbol).toUpperCase()
+        const value = toNum(row.value)
+        const growth = toNum(row.growth)
+        const financial_strength = toNum(row.financial_strength)
+        const quality = toNum(row.quality)
+        const momentum = toNum(row.momentum)
+        const values = [value, growth, financial_strength, quality, momentum]
+        return { symbol, values }
       })
-      .filter(({ symbol }) => !ETF_SYMBOLS.has(symbol));
-  }, [rows]);
+      .filter(({ symbol }) => !ETF_SYMBOLS.has(symbol))
+  }, [rows])
 
   if (isLoading) {
     return (
@@ -78,7 +90,7 @@ export default function PortfolioQualityRadarCharts({
           <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
         </div>
       </div>
-    );
+    )
   }
 
   if (apiError) {
@@ -91,7 +103,7 @@ export default function PortfolioQualityRadarCharts({
           <p className="text-sm text-red-600 dark:text-red-400">{apiError}</p>
         </div>
       </div>
-    );
+    )
   }
 
   if (charts.length === 0) {
@@ -106,7 +118,7 @@ export default function PortfolioQualityRadarCharts({
           </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -115,23 +127,29 @@ export default function PortfolioQualityRadarCharts({
         Portfolio Quality Radar Charts
       </h3>
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Five scores per stock: Value, Growth, Financial Strength, Quality, Momentum (0–100).
+        Five scores per stock: Value, Growth, Financial Strength, Quality,
+        Momentum (0–100).
       </p>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
         {charts.map(({ symbol, values }) => {
-          const indicatorNames = RADAR_INDICATORS.map((i) => i.name.replace(/\n/g, " "));
+          const indicatorNames = RADAR_INDICATORS.map((i) =>
+            i.name.replace(/\n/g, " "),
+          )
           const tooltipFormatter = (params: unknown) => {
-            const p = params as { value?: number[]; seriesName?: string };
-            const v = p?.value ?? values;
-            const count = v.filter((x) => x != null && Number.isFinite(x)).length || 1;
-            const sum = v.reduce((a, x) => a + (Number.isFinite(x) ? x : 0), 0);
-            const composite = sum / count;
+            const p = params as { value?: number[]; seriesName?: string }
+            const v = p?.value ?? values
+            const count =
+              v.filter((x) => x != null && Number.isFinite(x)).length || 1
+            const sum = v.reduce((a, x) => a + (Number.isFinite(x) ? x : 0), 0)
+            const composite = sum / count
             const lines = [
               `<strong>Composite Score: ${composite.toFixed(1)}</strong>`,
-              ...indicatorNames.map((n, i) => `${n}: ${(v[i] ?? 0).toFixed(1)}`),
-            ];
-            return lines.join("<br/>");
-          };
+              ...indicatorNames.map(
+                (n, i) => `${n}: ${(v[i] ?? 0).toFixed(1)}`,
+              ),
+            ]
+            return lines.join("<br/>")
+          }
           return (
             <div
               key={symbol}
@@ -145,7 +163,9 @@ export default function PortfolioQualityRadarCharts({
                   option={{
                     tooltip: {
                       trigger: "item",
-                      formatter: tooltipFormatter as (params: unknown) => string,
+                      formatter: tooltipFormatter as (
+                        params: unknown,
+                      ) => string,
                       confine: true,
                       backgroundColor: "rgba(255, 255, 255, 0.08)",
                       borderColor: "rgba(255, 255, 255, 0.2)",
@@ -156,7 +176,10 @@ export default function PortfolioQualityRadarCharts({
                       },
                     },
                     radar: {
-                      indicator: RADAR_INDICATORS.map((i) => ({ name: i.name, max: i.max })),
+                      indicator: RADAR_INDICATORS.map((i) => ({
+                        name: i.name,
+                        max: i.max,
+                      })),
                       shape: "polygon",
                       splitNumber: 4,
                       axisName: {
@@ -184,7 +207,10 @@ export default function PortfolioQualityRadarCharts({
                                 y: 0.5,
                                 r: 0.5,
                                 colorStops: [
-                                  { offset: 0, color: "rgba(45, 120, 110, 0.7)" },
+                                  {
+                                    offset: 0,
+                                    color: "rgba(45, 120, 110, 0.7)",
+                                  },
                                   { offset: 1, color: "rgba(0, 200, 81, 0.5)" },
                                 ],
                               },
@@ -209,9 +235,9 @@ export default function PortfolioQualityRadarCharts({
                 />
               </div>
             </div>
-          );
+          )
         })}
       </div>
     </div>
-  );
+  )
 }

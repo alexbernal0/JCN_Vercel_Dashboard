@@ -107,12 +107,20 @@ const getDailyChangeColor = (value: number): string => {
   return "bg-red-200 text-red-900"
 }
 
+/** Simple text-color helper for signed percentage values */
+const getPctColor = (value: number): string => {
+  if (value > 0) return "text-green-600 dark:text-green-400"
+  if (value < 0) return "text-red-600 dark:text-red-400"
+  return "text-gray-600 dark:text-gray-400"
+}
+
 export default function PortfolioPerformanceTable({
   data,
   isLoading = false,
 }: PortfolioPerformanceTableProps) {
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+  const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
 
   // Handle column header click for sorting
   const handleSort = (field: SortField) => {
@@ -168,8 +176,8 @@ export default function PortfolioPerformanceTable({
         {/* Refresh button removed - use main page refresh button */}
       </div>
 
-      {/* Compact Table */}
-      <div className="overflow-x-auto">
+      {/* ── Desktop table (hidden on mobile) ── */}
+      <div className="hidden overflow-x-auto md:block">
         <Table className="compact-table">
           <TableHead>
             <TableRow className="text-xs">
@@ -390,9 +398,159 @@ export default function PortfolioPerformanceTable({
         </Table>
       </div>
 
-      {/* Footer summary */}
+      {/* ── Mobile card list (hidden on desktop) ── */}
+      <div className="md:hidden">
+        {isLoading ? (
+          <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            Loading portfolio data...
+          </div>
+        ) : sortedData.length === 0 ? (
+          <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            No portfolio data available
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-900">
+            {sortedData.map((row, idx) => {
+              const noData = row.sector === "No Data"
+              const companyName = TICKER_TO_COMPANY[row.ticker] || row.security
+              const isExpanded = expandedTicker === row.ticker
+              const toggle = () =>
+                setExpandedTicker(isExpanded ? null : row.ticker)
+
+              return (
+                <div key={idx} className={`${noData ? "opacity-60" : ""}`}>
+                  {/* Collapsed row — always visible */}
+                  <button
+                    onClick={toggle}
+                    className="flex w-full items-center justify-between px-3 py-3 text-left active:bg-gray-50 dark:active:bg-gray-800"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="shrink-0 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {row.ticker}
+                      </span>
+                      <span className="truncate text-xs text-gray-500 dark:text-gray-400">
+                        {companyName}
+                      </span>
+                      {noData && (
+                        <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
+                          (no data)
+                        </span>
+                      )}
+                    </div>
+                    <div className="ml-2 flex flex-shrink-0 items-center gap-3">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        ${row.current_price.toFixed(2)}
+                      </span>
+                      <span
+                        className={`text-xs font-medium ${getPctColor(row.daily_change_pct)}`}
+                      >
+                        {row.daily_change_pct > 0 ? "+" : ""}
+                        {row.daily_change_pct.toFixed(2)}%
+                      </span>
+                      {/* Chevron */}
+                      <svg
+                        className={`h-4 w-4 text-gray-400 transition-transform dark:text-gray-500 ${isExpanded ? "rotate-180" : ""}`}
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                        />
+                      </svg>
+                    </div>
+                  </button>
+
+                  {/* Expanded details */}
+                  {isExpanded && (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-gray-100 px-3 pb-3 pt-2 text-xs dark:border-gray-800">
+                      <div className="text-gray-500 dark:text-gray-400">
+                        Cost Basis
+                      </div>
+                      <div className="text-right text-gray-900 dark:text-gray-100">
+                        ${row.cost_basis.toFixed(2)}
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        % Portfolio
+                      </div>
+                      <div className="text-right text-gray-900 dark:text-gray-100">
+                        {row.port_pct.toFixed(2)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        YTD %
+                      </div>
+                      <div
+                        className={`text-right font-medium ${getPctColor(row.ytd_pct)}`}
+                      >
+                        {row.ytd_pct > 0 ? "+" : ""}
+                        {row.ytd_pct.toFixed(2)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        YoY %
+                      </div>
+                      <div
+                        className={`text-right font-medium ${getPctColor(row.yoy_pct)}`}
+                      >
+                        {row.yoy_pct > 0 ? "+" : ""}
+                        {row.yoy_pct.toFixed(2)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        Port. Gain %
+                      </div>
+                      <div
+                        className={`text-right font-medium ${getPctColor(row.port_gain_pct)}`}
+                      >
+                        {row.port_gain_pct > 0 ? "+" : ""}
+                        {row.port_gain_pct.toFixed(2)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        % Below 52wk High
+                      </div>
+                      <div className="text-right text-gray-900 dark:text-gray-100">
+                        {row.pct_below_52wk_high.toFixed(2)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        52wk Chan Range
+                      </div>
+                      <div className="text-right text-gray-900 dark:text-gray-100">
+                        {row.chan_range_pct.toFixed(1)}%
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        Sector
+                      </div>
+                      <div className="text-right text-gray-900 dark:text-gray-100">
+                        {row.sector}
+                      </div>
+
+                      <div className="text-gray-500 dark:text-gray-400">
+                        Industry
+                      </div>
+                      <div className="truncate text-right text-gray-900 dark:text-gray-100">
+                        {row.industry}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer summary — both views */}
       {!isLoading && sortedData.length > 0 && (
-        <div className="text-right text-xs text-gray-500">
+        <div className="text-right text-xs text-gray-500 dark:text-gray-400">
           Showing {sortedData.length} positions
         </div>
       )}

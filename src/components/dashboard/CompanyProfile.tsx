@@ -36,8 +36,8 @@ export default function CompanyProfile({ symbol }: CompanyProfileProps) {
     script.async = true
     script.textContent = JSON.stringify({
       symbol: symbol,
-      colorTheme: "dark",
-      isTransparent: true,
+      colorTheme: "light",
+      isTransparent: false,
       width: "100%",
       height: "100%",
       locale: "en",

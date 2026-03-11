@@ -781,7 +781,7 @@ export default function StockAnalysisPage() {
         {analysisData && (
           <div className="space-y-6">
             {/* ===== Module 1: Company Profile (TradingView) ===== */}
-            <section className="h-[480px] overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <section className="h-[360px] overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
               <CompanyProfile symbol={analysisData.symbol} />
             </section>
 

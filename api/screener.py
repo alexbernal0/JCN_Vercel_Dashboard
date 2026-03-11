@@ -240,7 +240,12 @@ def _build_sort_clause(sort_by: Optional[str], sort_dir: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 def run_screener(request: ScreenerRequest) -> ScreenerResponse:
-    """Execute screener query with filters, JOINs, and sorting."""
+    """Execute screener query with filters, JOINs, and sorting.
+
+    Uses inline subqueries instead of CTEs — MotherDuck handles these
+    reliably (matches existing patterns in stock_analysis.py).
+    Fetches all matching rows (up to limit), derives count from len(rows).
+    """
 
     # Check cache
     SCREENER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -268,76 +273,14 @@ def run_screener(request: ScreenerRequest) -> ScreenerResponse:
 
         sort_clause = _build_sort_clause(request.sort_by, request.sort_dir)
 
-        # Main query: JOIN all tables
+        # Main query — inline subqueries (no CTEs, MotherDuck-safe)
         # Symbol normalization:
-        # - PROD_DASHBOARD_SNAPSHOT: symbols have .US suffix
-        # - Value/Quality/FinStr/Growth scores: symbols have .US suffix
-        # - Momentum scores: symbols do NOT have .US suffix
-        # - JCN Composites: symbols have .US suffix
-        # - Fundamentals: symbols have .US suffix
+        # - PROD_DASHBOARD_SNAPSHOT: .US suffix
+        # - Value/Quality/FinStr/Growth scores: .US suffix
+        # - Momentum scores: NO .US suffix
+        # - JCN Composites: .US suffix
+        # - Fundamentals: .US suffix
         sql = f"""
-        WITH latest_val AS (
-            SELECT symbol, value_score_composite
-            FROM PROD_EODHD.main.PROD_OBQ_Value_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores)
-        ),
-        latest_qual AS (
-            SELECT symbol, quality_score_composite
-            FROM PROD_EODHD.main.PROD_OBQ_Quality_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Quality_Scores)
-        ),
-        latest_fin AS (
-            SELECT symbol, finstr_score_composite
-            FROM PROD_EODHD.main.PROD_OBQ_FinStr_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_FinStr_Scores)
-        ),
-        latest_grow AS (
-            SELECT symbol, growth_score_composite
-            FROM PROD_EODHD.main.PROD_OBQ_Growth_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Growth_Scores)
-        ),
-        latest_mom AS (
-            SELECT symbol,
-                   momentum_score_composite,
-                   af_r3m, af_r6m, af_r9m, af_r12m, af_momentum,
-                   fip_3m, fip_6m, fip_12m, fip_score,
-                   systemscore,
-                   af_composite, fip_composite, sys_composite
-            FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores)
-        ),
-        latest_jcn AS (
-            SELECT symbol,
-                   jcn_full_composite, jcn_qarp, jcn_garp,
-                   jcn_quality_momentum, jcn_value_momentum,
-                   jcn_growth_quality_momentum, jcn_fortress, jcn_alpha_trifecta
-            FROM PROD_EODHD.main.PROD_JCN_Composite_Scores
-            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_JCN_Composite_Scores)
-        ),
-        latest_fund AS (
-            SELECT symbol,
-                   pe_ratio, forward_pe, peg_ratio,
-                   price_book_mrq, price_sales_ttm,
-                   enterprise_value_ebitda, dividend_yield, beta,
-                   profit_margin, operating_margin_ttm,
-                   return_on_equity_ttm, return_on_assets_ttm,
-                   gross_profit_ttm AS gross_profit_ttm_val,
-                   quarterly_revenue_growth_yoy, quarterly_earnings_growth_yoy,
-                   company_name,
-                   -- Fundamentals tab fields
-                   CASE WHEN bs_totalStockholderEquity IS NOT NULL AND bs_totalStockholderEquity != 0
-                        THEN ROUND(bs_totalLiab / bs_totalStockholderEquity, 2) END AS debt_to_equity,
-                   CASE WHEN bs_totalCurrentLiabilities IS NOT NULL AND bs_totalCurrentLiabilities != 0
-                        THEN ROUND(bs_totalCurrentAssets / bs_totalCurrentLiabilities, 2) END AS current_ratio,
-                   CASE WHEN is_interestExpense IS NOT NULL AND is_interestExpense != 0
-                        THEN ROUND(is_operatingIncome / is_interestExpense, 2) END AS interest_coverage,
-                   -- Gross margin computed from TTM data if available
-                   CASE WHEN revenue_ttm IS NOT NULL AND revenue_ttm != 0 AND gross_profit_ttm IS NOT NULL
-                        THEN ROUND(gross_profit_ttm / revenue_ttm, 4) END AS gross_profit_ttm_margin
-            FROM PROD_EODHD.main.PROD_EOD_Fundamentals
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY filing_date DESC) = 1
-        )
-
         SELECT
             REPLACE(snap.symbol, '.US', '') AS symbol,
             fund.company_name,
@@ -352,13 +295,11 @@ def run_screener(request: ScreenerRequest) -> ScreenerResponse:
             snap.chan_range_pct,
             snap.week_52_high,
             snap.week_52_low,
-            -- 5 Factor Scores
             val.value_score_composite,
             qual.quality_score_composite,
             fin.finstr_score_composite,
             grow.growth_score_composite,
             mom.momentum_score_composite,
-            -- 8 JCN Blends
             jcn.jcn_full_composite,
             jcn.jcn_qarp,
             jcn.jcn_garp,
@@ -367,67 +308,105 @@ def run_screener(request: ScreenerRequest) -> ScreenerResponse:
             jcn.jcn_growth_quality_momentum,
             jcn.jcn_fortress,
             jcn.jcn_alpha_trifecta,
-            -- Momentum Sub-components
             mom.af_r3m, mom.af_r6m, mom.af_r9m, mom.af_r12m, mom.af_momentum,
             mom.fip_3m, mom.fip_6m, mom.fip_12m, mom.fip_score,
             mom.systemscore,
             mom.af_composite, mom.fip_composite, mom.sys_composite,
-            -- Valuation
             fund.pe_ratio, fund.forward_pe, fund.peg_ratio,
             fund.price_book_mrq AS price_book,
             fund.price_sales_ttm AS price_sales,
             fund.enterprise_value_ebitda AS ev_ebitda,
             fund.dividend_yield, fund.beta,
-            -- Profitability
             fund.profit_margin, fund.operating_margin_ttm AS operating_margin,
             fund.return_on_equity_ttm AS return_on_equity,
             fund.return_on_assets_ttm AS return_on_assets,
             fund.gross_profit_ttm_margin AS gross_margin,
-            -- Growth
             fund.quarterly_revenue_growth_yoy AS revenue_growth,
             fund.quarterly_earnings_growth_yoy AS earnings_growth,
-            -- Fundamentals
             fund.debt_to_equity,
             fund.current_ratio,
             fund.interest_coverage
 
         FROM PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT snap
-        LEFT JOIN latest_val val ON snap.symbol = val.symbol
-        LEFT JOIN latest_qual qual ON snap.symbol = qual.symbol
-        LEFT JOIN latest_fin fin ON snap.symbol = fin.symbol
-        LEFT JOIN latest_grow grow ON snap.symbol = grow.symbol
-        LEFT JOIN latest_mom mom ON REPLACE(snap.symbol, '.US', '') = mom.symbol
-        LEFT JOIN latest_jcn jcn ON snap.symbol = jcn.symbol
-        LEFT JOIN latest_fund fund ON snap.symbol = fund.symbol
+
+        LEFT JOIN (
+            SELECT symbol, value_score_composite
+            FROM PROD_EODHD.main.PROD_OBQ_Value_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Value_Scores)
+        ) val ON snap.symbol = val.symbol
+
+        LEFT JOIN (
+            SELECT symbol, quality_score_composite
+            FROM PROD_EODHD.main.PROD_OBQ_Quality_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Quality_Scores)
+        ) qual ON snap.symbol = qual.symbol
+
+        LEFT JOIN (
+            SELECT symbol, finstr_score_composite
+            FROM PROD_EODHD.main.PROD_OBQ_FinStr_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_FinStr_Scores)
+        ) fin ON snap.symbol = fin.symbol
+
+        LEFT JOIN (
+            SELECT symbol, growth_score_composite
+            FROM PROD_EODHD.main.PROD_OBQ_Growth_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Growth_Scores)
+        ) grow ON snap.symbol = grow.symbol
+
+        LEFT JOIN (
+            SELECT symbol,
+                   momentum_score_composite,
+                   af_r3m, af_r6m, af_r9m, af_r12m, af_momentum,
+                   fip_3m, fip_6m, fip_12m, fip_score,
+                   systemscore,
+                   af_composite, fip_composite, sys_composite
+            FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_OBQ_Momentum_Scores)
+        ) mom ON REPLACE(snap.symbol, '.US', '') = mom.symbol
+
+        LEFT JOIN (
+            SELECT symbol,
+                   jcn_full_composite, jcn_qarp, jcn_garp,
+                   jcn_quality_momentum, jcn_value_momentum,
+                   jcn_growth_quality_momentum, jcn_fortress, jcn_alpha_trifecta
+            FROM PROD_EODHD.main.PROD_JCN_Composite_Scores
+            WHERE month_date = (SELECT MAX(month_date) FROM PROD_EODHD.main.PROD_JCN_Composite_Scores)
+        ) jcn ON snap.symbol = jcn.symbol
+
+        LEFT JOIN (
+            SELECT symbol,
+                   pe_ratio, forward_pe, peg_ratio,
+                   price_book_mrq, price_sales_ttm,
+                   enterprise_value_ebitda, dividend_yield, beta,
+                   profit_margin, operating_margin_ttm,
+                   return_on_equity_ttm, return_on_assets_ttm,
+                   gross_profit_ttm AS gross_profit_ttm_val,
+                   quarterly_revenue_growth_yoy, quarterly_earnings_growth_yoy,
+                   company_name,
+                   CASE WHEN bs_totalStockholderEquity IS NOT NULL AND bs_totalStockholderEquity != 0
+                        THEN ROUND(bs_totalLiab / bs_totalStockholderEquity, 2) END AS debt_to_equity,
+                   CASE WHEN bs_totalCurrentLiabilities IS NOT NULL AND bs_totalCurrentLiabilities != 0
+                        THEN ROUND(bs_totalCurrentAssets / bs_totalCurrentLiabilities, 2) END AS current_ratio,
+                   CASE WHEN is_interestExpense IS NOT NULL AND is_interestExpense != 0
+                        THEN ROUND(is_operatingIncome / is_interestExpense, 2) END AS interest_coverage,
+                   CASE WHEN revenue_ttm IS NOT NULL AND revenue_ttm != 0 AND gross_profit_ttm IS NOT NULL
+                        THEN ROUND(gross_profit_ttm / revenue_ttm, 4) END AS gross_profit_ttm_margin
+            FROM PROD_EODHD.main.PROD_EOD_Fundamentals
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY filing_date DESC) = 1
+        ) fund ON snap.symbol = fund.symbol
 
         WHERE {full_where}
         {sort_clause}
-        LIMIT ? OFFSET ?
         """
-
-        # Add limit/offset to params
-        query_params = params + [request.limit, request.offset]
 
         logger.info(f"Screener query with {len(request.filters)} filters")
-        rows = conn.execute(sql, query_params).fetchall()
+        rows = conn.execute(sql, params).fetchall()
         columns = [d[0] for d in conn.description]
 
-        # Also get total count (without LIMIT/OFFSET) for pagination
-        count_sql = f"""
-        SELECT COUNT(*)
-        FROM PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT snap
-        LEFT JOIN latest_val val ON snap.symbol = val.symbol
-        LEFT JOIN latest_qual qual ON snap.symbol = qual.symbol
-        LEFT JOIN latest_fin fin ON snap.symbol = fin.symbol
-        LEFT JOIN latest_grow grow ON snap.symbol = grow.symbol
-        LEFT JOIN latest_mom mom ON REPLACE(snap.symbol, '.US', '') = mom.symbol
-        LEFT JOIN latest_jcn jcn ON snap.symbol = jcn.symbol
-        LEFT JOIN latest_fund fund ON snap.symbol = fund.symbol
-        WHERE {full_where}
-        """
-
-        # Count query only needs the WHERE params, not limit/offset
-        total_count = conn.execute(count_sql, params).fetchone()[0]
+        # Total count = all matching rows; slice for pagination
+        total_count = len(rows)
+        if request.offset > 0 or request.limit < total_count:
+            rows = rows[request.offset:request.offset + request.limit]
 
         # Build response data
         data = []

@@ -1,8 +1,8 @@
 # JCN Financial Dashboard – Architecture
 
 **Status:** ✅ Production Ready  
-**Version:** 1.3.0  
-**Last Updated:** March 9, 2026
+**Version:** 1.4.0  
+**Last Updated:** March 11, 2026
 
 ---
 
@@ -10,17 +10,17 @@
 
 Serverless portfolio dashboard:
 
-- **Frontend:** Next.js 15, React 19, Tremor, ECharts, Tailwind
+- **Frontend:** Next.js 15, React 19, Tremor, TanStack Table v8, TradingView Widgets, ECharts, Tailwind
 - **Backend:** FastAPI (Python), Vercel serverless
-- **Database:** MotherDuck (DuckDB) – PROD_EODHD + 5 factor scores + JCN composite blends (investable universe)
-- **Caching:** SWR (frontend), 24hr MotherDuck cache in API
+- **Database:** MotherDuck (DuckDB) – PROD_EODHD + 5 factor scores + JCN composite blends + fundamentals (investable universe)
+- **Caching:** SWR (frontend), /tmp 5-min cache (screener API), 24hr MotherDuck cache in portfolio API
 
 ---
 
 ## Live URLs
 
-- **App:** https://jcn-tremor.vercel.app
-- **API health:** https://jcn-tremor.vercel.app/api/health
+- **App:** https://jcn-vercel-dashboardv4.vercel.app
+- **API health:** https://jcn-vercel-dashboardv4.vercel.app/api/health
 
 ---
 
@@ -28,26 +28,42 @@ Serverless portfolio dashboard:
 
 ```
 JCN_Vercel_Dashboard/
-├── api/                          # Python serverless (FastAPI)
-│   ├── index.py                   # All routes
-│   ├── portfolio_performance.py   # Performance metrics
-│   ├── portfolio_allocation.py    # Allocation for pie charts
-│   ├── portfolio_fundamentals.py  # OBQ + Momentum scores
-│   ├── benchmarks.py              # SPY comparison
-│   ├── stock_prices_module.py     # Historical prices
-│   └── cache_manager.py           # MotherDuck 24hr cache
+├── api/                              # Python serverless (FastAPI)
+│   ├── index.py                       # Route registry
+│   ├── screener.py                    # Stock screener API (v1.4.0)
+│   ├── stock_analysis.py             # Deep fundamental analysis
+│   ├── portfolio_performance.py       # Performance metrics
+│   ├── portfolio_allocation.py        # Allocation for pie charts
+│   ├── portfolio_fundamentals.py      # OBQ + Momentum scores
+│   ├── benchmarks.py                  # SPY comparison
+│   ├── stock_prices_module.py         # Historical prices
+│   ├── sync_stage0.py - stage3.py     # Data pipeline (4 stages)
+│   └── cache_manager.py              # MotherDuck 24hr cache
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx               # Landing
-│   │   └── (dashboard)/           # /dashboard, /persistent-value, etc.
-│   ├── components/dashboard/     # Tables, charts, inputs
-│   └── lib/swr-provider.tsx       # SWR config
-├── scripts/                       # Score recalculation + DB helpers
-├── docs/                          # Procedures, DB, deploy
-├── CHECKPOINT_v1.3.0.md           # Rollback snapshot (data-sync)
+│   │   ├── page.tsx                   # Landing
+│   │   └── (dashboard)/              # All dashboard pages
+│   │       ├── dashboard/page.tsx     # Heatmap + 3 TradingView charts
+│   │       ├── screener/page.tsx      # Stock screener (v1.4.0)
+│   │       ├── watchlist/page.tsx     # Watchlist (v1.4.0)
+│   │       ├── stock-analysis/        # TradingView Company Profile
+│   │       ├── persistent-value/      # Portfolio page
+│   │       ├── olivia-growth/         # Portfolio page
+│   │       ├── pure-alpha/            # Portfolio page
+│   │       ├── data-sync/             # Sync pipeline UI
+│   │       └── wiki/                  # Documentation
+│   ├── components/
+│   │   ├── dashboard/                 # Sidebar, heatmap, charts, company profile
+│   │   └── screener/                  # Filters, table, presets (v1.4.0)
+│   └── lib/
+│       ├── watchlist.ts               # Shared watchlist utility (v1.4.0)
+│       └── swr-provider.tsx           # SWR config
+├── scripts/                           # Score recalculation + DB helpers
+├── docs/                              # Procedures, DB, deploy
+├── CHECKPOINT_v1.4.0.md               # Current rollback snapshot
 ├── CHECKPOINTS.md
 ├── README.md
-├── ARCHITECTURE.md                # This file
+├── ARCHITECTURE.md                    # This file
 ├── TECH_STACK.md
 ├── DATA_FLOW.md
 ├── BUILDING_GUIDE.md
@@ -100,19 +116,21 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 
 **Endpoints:**
 
-| Method | Path                          | Purpose                                     |
-| ------ | ----------------------------- | ------------------------------------------- |
-| GET    | `/`                           | API info + endpoint list                    |
-| GET    | `/api/sync/stage0`            | Health and Inventory (8 checks)             |
-| GET    | `/api/sync/stage1`            | EODHD Ingest (bulk to DEV)                  |
-| GET    | `/api/sync/stage2`            | Validate and Promote (DEV to PROD)          |
-| GET    | `/api/sync/stage3`            | Audit and Report (integrity + self-healing) |
-| GET    | `/api/health`                 | Health; MOTHERDUCK_TOKEN check              |
-| POST   | `/api/portfolio/performance`  | Performance (body: `holdings`)              |
-| POST   | `/api/portfolio/allocation`   | Allocation (body: `portfolio`)              |
-| POST   | `/api/portfolio/fundamentals` | 5 scores (body: `symbols`)                  |
-| POST   | `/api/benchmarks`             | SPY comparison (body: `holdings`)           |
-| POST   | `/api/stock/prices`           | Historical prices (body: `symbols`)         |
+| Method | Path                          | Purpose                                      |
+| ------ | ----------------------------- | -------------------------------------------- |
+| GET    | `/`                           | API info + endpoint list                     |
+| GET    | `/api/health`                 | Health; MOTHERDUCK_TOKEN check               |
+| GET    | `/api/sync/stage0`            | Health and Inventory (8 checks)              |
+| GET    | `/api/sync/stage1`            | EODHD Ingest (bulk to DEV)                   |
+| GET    | `/api/sync/stage2`            | Validate and Promote (DEV to PROD)           |
+| GET    | `/api/sync/stage3`            | Audit and Report (integrity + self-healing)  |
+| POST   | `/api/portfolio/performance`  | Performance (body: `holdings`)               |
+| POST   | `/api/portfolio/allocation`   | Allocation (body: `portfolio`)               |
+| POST   | `/api/portfolio/fundamentals` | 5 scores (body: `symbols`)                   |
+| POST   | `/api/benchmarks`             | SPY comparison (body: `holdings`)            |
+| POST   | `/api/stock/prices`           | Historical prices (body: `symbols`)          |
+| POST   | `/api/stock/analysis`         | Deep fundamental analysis (body: `symbol`)   |
+| POST   | `/api/screener`               | Stock screener with dynamic filters (v1.4.0) |
 
 ---
 
@@ -124,6 +142,8 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 - **POST /api/portfolio/fundamentals** – Body: `{ symbols: string[] }`. Returns `{ data: [{ symbol, value, growth, financial_strength, quality, momentum }], score_columns }` from 5 factor score tables (Value, Quality, Growth, FinStr, Momentum). Scores computed against investable universe (top 3000 by market cap).
 - **POST /api/benchmarks** – Body: holdings. Returns portfolio vs SPY daily change and alpha.
 - **POST /api/stock/prices** – Body: `{ symbols: string[] }`. Returns historical daily close for chart (MotherDuck PROD_EOD_survivorship).
+- **POST /api/stock/analysis** – Body: `{ symbol: string }`. Returns deep fundamental analysis: per-share data, quality metrics, financial statements, growth rates, valuation, JCN scores.
+- **POST /api/screener** – Body: `{ filters: [{field, op, value}], sort_by, sort_dir, limit, offset }`. Returns filtered stock universe with ~50 fields. Supports operators: `gte`, `lte`, `eq`, `in`, `between`. All fields whitelisted against SQL injection. Uses inline subqueries (not CTEs) for MotherDuck compatibility. 5-min /tmp cache.
 
 ---
 

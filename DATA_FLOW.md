@@ -1,7 +1,7 @@
 # Data Flow & Architecture Guide
 
-**Last Updated:** March 9, 2026  
-**Current as of:** v1.3.0  
+**Last Updated:** March 11, 2026  
+**Current as of:** v1.4.0  
 **For:** JCN Financial Dashboard
 
 ---
@@ -127,6 +127,93 @@ python scripts/composite_score_recalculation.py        # 8 JCN blend presets
 ```
 
 All scores are computed against the **investable universe** (top 3,000 stocks by market cap, reconstituted annually in May). See `docs/PROCEDURES.md` for full details.
+
+---
+
+## Stock Screener Data Flow (v1.4.0)
+
+The screener page allows FinViz-style preset filtering across the ~3,000 stock universe.
+
+### Screener Architecture
+
+```
+User selects preset filters on /screener page
+    |
+    v
+Frontend (ScreenerFilters.tsx)
+    |-- 7 tabs: Descriptive, JCN Scores, Valuation, Growth, Profitability, Momentum, Fundamentals
+    |-- ~65 preset dropdown options (no manual input)
+    |-- Builds filter array: [{ field, op, value }, ...]
+    v
+POST /api/screener (FastAPI)
+    |
+    ├─ Check /tmp cache (5-min TTL, MD5 of request)
+    │   └─ Cache hit → return immediately
+    │
+    ├─ Build WHERE clause from filters
+    │   └─ Only whitelisted fields allowed (FIELD_MAP)
+    │   └─ Parameterized queries (? placeholders)
+    │
+    ├─ Execute main query with inline subqueries (NOT CTEs)
+    │   └─ FROM PROD_DASHBOARD_SNAPSHOT snap
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_OBQ_Value_Scores ...) val
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_OBQ_Quality_Scores ...) qual
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_OBQ_FinStr_Scores ...) fin
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_OBQ_Growth_Scores ...) grow
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_OBQ_Momentum_Scores ...) mom
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_JCN_Composite_Scores ...) jcn
+    │   └─ LEFT JOIN (SELECT ... FROM PROD_EOD_Fundamentals ...) fund
+    │   └─ WHERE snap.is_etf = false AND [user filters]
+    │   └─ ORDER BY [sort_by] NULLS LAST
+    │
+    └─ Return JSON: { data: [...rows], total_count, columns }
+        |
+        v
+Frontend (ScreenerTable.tsx / TanStack Table v8)
+    |-- Sortable columns (click header)
+    |-- Show/hide columns (column picker)
+    |-- CSV export
+    |-- Right-click context menu:
+    |     ├─ Analysis → opens /stock-analysis?symbol=X in new tab
+    |     ├─ Add to Watchlist → localStorage via watchlist.ts
+    |     └─ Grok → placeholder (no functionality)
+    |
+    └─ State saved to sessionStorage (survives navigation)
+```
+
+### Watchlist Data Flow
+
+```
+Symbols added via Screener context menu or Watchlist /add input
+    |
+    v
+watchlist.ts (localStorage CRUD)
+    |-- getWatchlist(), addToWatchlist(), removeFromWatchlist()
+    |-- Dispatches 'watchlist-change' CustomEvent
+    |
+    v
+Watchlist page (/watchlist)
+    |-- Listens for 'watchlist-change' and 'storage' events
+    |-- Fetches full universe from /api/screener (no filters, limit 3000)
+    |-- Filters client-side to only watchlist symbols
+    |-- Displays enriched data in TanStack Table
+    |-- CSV export, sort, remove individual, clear all
+```
+
+### Symbol Normalization (Screener JOINs)
+
+```
+PROD_DASHBOARD_SNAPSHOT (snap)  → symbol has .US suffix
+PROD_OBQ_Value_Scores (val)     → symbol has .US suffix → JOIN ON snap.symbol = val.symbol
+PROD_OBQ_Quality_Scores (qual)  → symbol has .US suffix → JOIN ON snap.symbol = qual.symbol
+PROD_OBQ_FinStr_Scores (fin)    → symbol has .US suffix → JOIN ON snap.symbol = fin.symbol
+PROD_OBQ_Growth_Scores (grow)   → symbol has .US suffix → JOIN ON snap.symbol = grow.symbol
+PROD_OBQ_Momentum_Scores (mom)  → NO .US suffix         → JOIN ON REPLACE(snap.symbol, '.US', '') = mom.symbol
+PROD_JCN_Composite_Scores (jcn) → symbol has .US suffix → JOIN ON snap.symbol = jcn.symbol
+PROD_EOD_Fundamentals (fund)    → symbol has .US suffix → JOIN ON snap.symbol = fund.code
+```
+
+---
 
 ### Key Design Decisions
 
@@ -517,7 +604,6 @@ export function StockComparisonChart({ data }) {
 
 ```javascript
 import { StockComparisonChart } from "@/components/StockComparisonChart"
-
 ;<StockComparisonChart data={portfolioData} />
 ```
 

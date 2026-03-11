@@ -4,7 +4,36 @@ This document tracks stable checkpoints for rollback and branch-from points.
 
 ---
 
-## v1.3.0-data-sync-pipeline (Current)
+## v1.4.0-screener-watchlist (Current)
+
+**Date:** March 11, 2026
+**Tag:** `v1.4.0-screener-watchlist`
+
+### What's Working
+
+- Everything in v1.3.0 PLUS:
+- Dashboard redesign: TradingView heatmap + 3 daily candle charts (SPY/QQQ/ACWI)
+- Stock Analysis: TradingView Company Profile widget
+- Stock Screener (`/screener`): FinViz-style preset filters, 7 tabs, ~65 filters, TanStack Table
+- Watchlist (`/watchlist`): localStorage CRUD, enriched data, CSV export
+- Screener API (`POST /api/screener`): dynamic SQL builder, 8-table JOINs, inline subqueries
+- Cell context menu: Analysis (new tab), Add to Watchlist, Grok (placeholder)
+- Sector filter handles dual naming conventions (Technology + Information Technology)
+- Growth filters use correct decimal scale
+
+### Rollback
+
+```bash
+git checkout v1.4.0-screener-watchlist
+```
+
+### Full Changelog
+
+See [CHECKPOINT_v1.4.0.md](./CHECKPOINT_v1.4.0.md).
+
+---
+
+## v1.3.0-data-sync-pipeline
 
 **Date:** March 9, 2026
 **Tag:** `v1.3.0-data-sync-pipeline`
@@ -33,8 +62,6 @@ git checkout v1.3.0-data-sync-pipeline
 See [CHECKPOINT_v1.3.0.md](./CHECKPOINT_v1.3.0.md).
 
 ---
-
-
 
 ## v1.2.0-fundamentals-aggregated
 

@@ -25,10 +25,13 @@ const TOC: TocItem[] = [
     id: "pages",
     label: "Dashboard Pages",
     children: [
+      { id: "page-dashboard", label: "Dashboard (Heatmap)" },
       { id: "page-persistent-value", label: "Persistent Value" },
       { id: "page-olivia-growth", label: "Olivia Growth" },
       { id: "page-pure-alpha", label: "Pure Alpha" },
       { id: "page-stock-analysis", label: "Stock Analysis" },
+      { id: "page-screener", label: "Stock Screener" },
+      { id: "page-watchlist", label: "Watchlist" },
       { id: "page-data-sync", label: "Data Sync" },
     ],
   },
@@ -498,6 +501,18 @@ export default function WikiPage() {
           <section className="mb-12">
             <SectionHeader id="pages">Dashboard Pages</SectionHeader>
 
+            <SubHeader id="page-dashboard">Dashboard (Heatmap + Charts)</SubHeader>
+            <Paragraph>
+              The main dashboard page features a full-width TradingView stock
+              market heatmap showing real-time sector and stock performance
+              with color-coded daily percentage changes. Above the heatmap,
+              three equally spaced TradingView Advanced Chart widgets display
+              daily candle charts for SPY (S&P 500), QQQ (Nasdaq 100), and
+              ACWI (All Country World Index) — providing instant macro context.
+              Charts use white backgrounds with volume bars hidden for a clean
+              presentation.
+            </Paragraph>
+
             <SubHeader id="page-persistent-value">
               Persistent Value Portfolio
             </SubHeader>
@@ -659,6 +674,56 @@ export default function WikiPage() {
                 </tbody>
               </table>
             </div>
+
+            <SubHeader id="page-screener">Stock Screener</SubHeader>
+            <Paragraph>
+              A FinViz-style stock screener that filters the ~3,000 stock
+              investable universe using preset dropdown filters — no manual
+              value input required. Organized into 7 filter tabs: Descriptive
+              (market cap, sector), JCN Scores (5 factor composites + 8 blend
+              composites), Valuation (P/E, PEG, P/B, P/S, EV/EBITDA, dividend
+              yield), Growth (revenue and earnings growth), Profitability
+              (margins, ROE, ROA), Momentum (daily/YTD/YoY changes, beta, and
+              all AF/FIP/System momentum sub-components), and Fundamentals
+              (debt/equity, current ratio, interest coverage).
+            </Paragraph>
+            <Paragraph>
+              Results display in a TanStack Table v8 with full sorting on any
+              column, a column picker to show/hide fields, and CSV export.
+              Right-clicking any cell opens a context menu with three options:
+              Analysis (opens the stock in Stock Analysis in a new tab), Add to
+              Watchlist (saves to localStorage), and Grok (placeholder for
+              future AI analysis). Filter and table state are persisted in
+              sessionStorage so navigating away and back preserves the screener
+              exactly as the user left it.
+            </Paragraph>
+            <Paragraph>
+              The screener API (POST /api/screener) uses a dynamic SQL query
+              builder with a whitelisted field map to prevent SQL injection. It
+              JOINs across 8 MotherDuck tables using inline subqueries (not
+              CTEs, which fail on MotherDuck). Results are cached in /tmp with
+              a 5-minute TTL. The API is 100% read-only and never writes to any
+              production table.
+            </Paragraph>
+
+            <SubHeader id="page-watchlist">Watchlist</SubHeader>
+            <Paragraph>
+              A personal watchlist page where users can track stocks of
+              interest. Symbols can be added manually via a ticker input field
+              or from the Screener context menu. The watchlist is stored in
+              localStorage (no database writes required) and syncs across
+              components via a custom watchlist-change event.
+            </Paragraph>
+            <Paragraph>
+              The watchlist table displays enriched data fetched from the
+              screener API: company name, sector, market cap, price, daily/YTD/YoY
+              percentage changes, and five JCN factor scores (Value, Quality,
+              Growth, Momentum, JCN Full Composite). Users can sort by any
+              column, remove individual symbols, clear all with a confirmation
+              dialog, export to CSV, or open any symbol in Stock Analysis via a
+              new-tab link. An empty state guides new users to add symbols from
+              the input field or the Screener page.
+            </Paragraph>
 
             <SubHeader id="page-data-sync">Data Sync Pipeline</SubHeader>
             <Paragraph>

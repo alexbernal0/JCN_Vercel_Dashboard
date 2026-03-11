@@ -144,6 +144,18 @@ class CacheManager:
         
         try:
             data = self._fetch_from_snapshot(conn, tickers_str)
+            
+            # Check if snapshot returned all requested tickers
+            missing_from_snapshot = [t for t in md_tickers if t not in data]
+            if missing_from_snapshot:
+                logger.warning(
+                    f"Snapshot missing {len(missing_from_snapshot)} tickers: "
+                    f"{missing_from_snapshot[:10]}... Falling back to legacy CTE for those."
+                )
+                missing_str = "', '".join(missing_from_snapshot)
+                fallback_data = self._fetch_legacy_cte(conn, missing_str)
+                data.update(fallback_data)
+                
         except Exception as snapshot_err:
             logger.warning(f"PROD_DASHBOARD_SNAPSHOT query failed ({snapshot_err}), falling back to legacy 5-CTE query")
             data = self._fetch_legacy_cte(conn, tickers_str)

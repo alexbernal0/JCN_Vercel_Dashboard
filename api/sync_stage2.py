@@ -259,24 +259,19 @@ def _rebuild_dashboard_snapshot(conn: "duckdb.DuckDBPyConnection") -> Dict:
     try:
         conn.execute("DROP TABLE IF EXISTS PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT")
 
+        # Uses per-symbol latest date (not global max) so every symbol gets a row
         conn.execute("""
             CREATE TABLE PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT AS
 
-            WITH surv_max AS (
-                SELECT MAX(date) AS max_date FROM PROD_EODHD.main.PROD_EOD_survivorship
-            ),
-            etf_max AS (
-                SELECT MAX(date) AS max_date FROM PROD_EODHD.main.PROD_EOD_ETFs
-            ),
-            surv_latest AS (
-                SELECT s.symbol, s.date, s.adjusted_close
-                FROM PROD_EODHD.main.PROD_EOD_survivorship s, surv_max m
-                WHERE s.date = m.max_date
+            WITH surv_latest AS (
+                SELECT symbol, date, adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_survivorship
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
             ),
             etf_latest AS (
-                SELECT e.symbol, e.date, e.adjusted_close
-                FROM PROD_EODHD.main.PROD_EOD_ETFs e, etf_max m
-                WHERE e.date = m.max_date
+                SELECT symbol, date, adjusted_close
+                FROM PROD_EODHD.main.PROD_EOD_ETFs
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
             ),
             all_latest AS (
                 SELECT symbol, date, adjusted_close, FALSE AS is_etf FROM surv_latest
@@ -284,16 +279,16 @@ def _rebuild_dashboard_snapshot(conn: "duckdb.DuckDBPyConnection") -> Dict:
                 SELECT symbol, date, adjusted_close, TRUE AS is_etf FROM etf_latest
             ),
             surv_prev AS (
-                SELECT symbol, adjusted_close AS prev_close
-                FROM PROD_EODHD.main.PROD_EOD_survivorship
-                WHERE date < (SELECT max_date FROM surv_max)
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+                SELECT s.symbol, s.adjusted_close AS prev_close
+                FROM PROD_EODHD.main.PROD_EOD_survivorship s
+                INNER JOIN surv_latest sl ON s.symbol = sl.symbol AND s.date < sl.date
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY s.symbol ORDER BY s.date DESC) = 1
             ),
             etf_prev AS (
-                SELECT symbol, adjusted_close AS prev_close
-                FROM PROD_EODHD.main.PROD_EOD_ETFs
-                WHERE date < (SELECT max_date FROM etf_max)
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+                SELECT e.symbol, e.adjusted_close AS prev_close
+                FROM PROD_EODHD.main.PROD_EOD_ETFs e
+                INNER JOIN etf_latest el ON e.symbol = el.symbol AND e.date < el.date
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY e.symbol ORDER BY e.date DESC) = 1
             ),
             all_prev AS (
                 SELECT symbol, prev_close FROM surv_prev

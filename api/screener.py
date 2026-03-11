@@ -265,7 +265,9 @@ def run_screener(request: ScreenerRequest) -> ScreenerResponse:
         # Build WHERE clause from filters
         where_str, params = _build_where_clause(request.filters)
         # Always exclude ETFs from screener
-        base_where = "snap.is_etf = false"
+        # is_etf is a BOOLEAN column (FALSE for stocks, TRUE for ETFs)
+        # Use IS NOT TRUE to safely handle FALSE, NULL, and any edge cases
+        base_where = "snap.is_etf IS NOT TRUE"
         if where_str:
             full_where = f"{base_where} AND {where_str}"
         else:

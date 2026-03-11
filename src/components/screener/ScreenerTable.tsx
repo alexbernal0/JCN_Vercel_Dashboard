@@ -181,6 +181,9 @@ function formatCell(
 ): string {
   if (value == null) return "—"
 
+  // String columns (no format) — return directly without Number conversion
+  if (!format) return String(value)
+
   const num = Number(value)
   if (!Number.isFinite(num)) return "—"
 

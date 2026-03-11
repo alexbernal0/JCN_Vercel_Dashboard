@@ -94,6 +94,13 @@ from .stock_analysis import (
     get_stock_analysis,
 )
 
+# Import screener module
+from .screener import (
+    ScreenerRequest,
+    ScreenerResponse,
+    run_screener,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -138,6 +145,7 @@ async def root():
             "/api/stock/search": "GET - Search stocks in investable universe (autocomplete)",
             "/api/stock/universe-check": "GET - Check if symbol is in investable universe",
             "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)",
+            "/api/screener": "POST - Stock screener with preset filters (FinViz-style)",
             "/api/sync/cron": "GET - Cron-triggered full pipeline (secured with CRON_SECRET)",
             "/api/sync/history": "GET - Recent sync run history"
         }
@@ -394,6 +402,22 @@ async def stock_analysis(symbol: str = Query("", description="Stock symbol to an
     except Exception as e:
         logger.error(f"Error in stock analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Stock analysis failed: {str(e)}")
+
+
+@app.post("/api/screener", response_model=ScreenerResponse)
+async def screener_endpoint(request: ScreenerRequest):
+    """
+    Stock screener with FinViz-style preset filters.
+    Queries PROD tables via JOINs — 100% read-only.
+    """
+    try:
+        logger.info(f"Screener request: {len(request.filters)} filters")
+        result = run_screener(request)
+        logger.info(f"Screener result: {result.total_count} total, {len(result.data)} returned")
+        return result
+    except Exception as e:
+        logger.error(f"Error in screener: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Screener failed: {str(e)}")
 
 
 @app.get("/api/sync/stage0")

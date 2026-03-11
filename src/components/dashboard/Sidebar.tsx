@@ -23,6 +23,7 @@ const navigation = [
       { name: "Market Analysis", href: "/market-analysis", icon: "🌍" },
       { name: "Risk Management", href: "/risk-management", icon: "🛡️" },
       { name: "Screener", href: "/screener", icon: "🔍" },
+      { name: "Watchlist", href: "/watchlist", icon: "⭐" },
       { name: "Wiki", href: "/wiki", icon: "📖" },
       { name: "Data Sync", href: "/data-sync", icon: "🔄" },
     ],

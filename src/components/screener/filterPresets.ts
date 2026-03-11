@@ -47,25 +47,34 @@ const MARKET_CAP_OPTIONS: FilterOption[] = [
 
 const SECTOR_OPTIONS: FilterOption[] = [
   { label: "Any", value: { op: "eq", value: "" } },
-  { label: "Technology", value: { op: "eq", value: "Technology" } },
-  { label: "Healthcare", value: { op: "eq", value: "Healthcare" } },
+  {
+    label: "Technology",
+    value: { op: "in", value: ["Technology", "Information Technology"] },
+  },
+  {
+    label: "Healthcare",
+    value: { op: "in", value: ["Healthcare", "Health Care"] },
+  },
   {
     label: "Financial Services",
-    value: { op: "eq", value: "Financial Services" },
+    value: { op: "in", value: ["Financial Services", "Financials"] },
   },
   {
     label: "Consumer Cyclical",
-    value: { op: "eq", value: "Consumer Cyclical" },
+    value: { op: "in", value: ["Consumer Cyclical", "Consumer Discretionary"] },
   },
   {
     label: "Consumer Defensive",
-    value: { op: "eq", value: "Consumer Defensive" },
+    value: { op: "in", value: ["Consumer Defensive", "Consumer Staples"] },
   },
   { label: "Industrials", value: { op: "eq", value: "Industrials" } },
   { label: "Energy", value: { op: "eq", value: "Energy" } },
   { label: "Utilities", value: { op: "eq", value: "Utilities" } },
   { label: "Real Estate", value: { op: "eq", value: "Real Estate" } },
-  { label: "Basic Materials", value: { op: "eq", value: "Basic Materials" } },
+  {
+    label: "Basic Materials",
+    value: { op: "in", value: ["Basic Materials", "Materials"] },
+  },
   {
     label: "Communication Services",
     value: { op: "eq", value: "Communication Services" },
@@ -124,11 +133,11 @@ const RETURN_OPTIONS: FilterOption[] = [
 
 const GROWTH_OPTIONS: FilterOption[] = [
   { label: "Any", value: { op: "gte", value: -9999 } },
-  { label: "Over 50%", value: { op: "gte", value: 50 } },
-  { label: "Over 25%", value: { op: "gte", value: 25 } },
-  { label: "Over 15%", value: { op: "gte", value: 15 } },
-  { label: "Over 10%", value: { op: "gte", value: 10 } },
-  { label: "Over 5%", value: { op: "gte", value: 5 } },
+  { label: "Over 50%", value: { op: "gte", value: 0.5 } },
+  { label: "Over 25%", value: { op: "gte", value: 0.25 } },
+  { label: "Over 15%", value: { op: "gte", value: 0.15 } },
+  { label: "Over 10%", value: { op: "gte", value: 0.1 } },
+  { label: "Over 5%", value: { op: "gte", value: 0.05 } },
   { label: "Positive", value: { op: "gte", value: 0 } },
   { label: "Negative", value: { op: "lte", value: 0 } },
 ]

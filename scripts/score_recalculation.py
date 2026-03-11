@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 OBQ Score Recalculation - Fundamental Scores
-Calculates Value, Quality, Growth, Financial Strength scores for ALL stocks
-in MotherDuck PROD_EOD_Fundamentals.
+Calculates Value, Quality, Growth, Financial Strength scores for stocks in the
+PROD_OBQ_Investable_Universe (top 3000 by market cap, annually reconstituted
+in May). For months before 2003-07-01 all available stocks are scored.
 
 Data flow: MotherDuck (SQL CTE) -> Python (3-way scoring) -> MotherDuck (write)
 No local files. No temp tables. No OBQ_AI dependency.
@@ -25,6 +26,12 @@ MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN")
 FUND_TABLE = "PROD_EODHD.main.PROD_EOD_Fundamentals"
 PRICE_TABLE = "PROD_EODHD.main.PROD_EOD_survivorship"
 SCORE_SCHEMA = "PROD_EODHD.main"
+# Investable universe: top-3000 by market cap, annually reconstituted in May.
+# Scores are restricted to symbols in this table for each scoring month.
+UNIVERSE_TABLE = "PROD_EODHD.main.PROD_OBQ_Investable_Universe"
+# Universe table starts at the 2003 reconstitution (effective 2003-07-01).
+# Months before this date score all available stocks (no filtering).
+UNIVERSE_START_DATE = date(2003, 7, 1)
 STALENESS_DAYS = 548
 MIN_VALID_METRICS = 2
 MIN_SECTOR_PEERS = 3
@@ -211,6 +218,49 @@ def prior_month_end(d):
 
 
 # ---------------------------------------------------------------------------
+# INVESTABLE UNIVERSE FILTER
+# ---------------------------------------------------------------------------
+def get_universe_filter(md_str):
+    """
+    Returns a SQL WHERE clause fragment that restricts scoring to stocks in the
+    PROD_OBQ_Investable_Universe table for the given scoring month.
+
+    The universe table holds top-3000 stocks by market cap, reconstituted annually
+    in May. Each row has effective_start / effective_end date bounds that define
+    which recon year covers a given scoring month:
+      - month_date 2024-09-30 -> recon 2024 (effective 2024-07-01 to 2025-06-30)
+      - month_date 2024-03-31 -> recon 2023 (effective 2023-07-01 to 2024-06-30)
+
+    For months before UNIVERSE_START_DATE (2003-07-01), returns an empty string
+    so all available stocks are scored (backward compatibility for early history).
+
+    Usage in SQL builders: add {universe_filter} at the end of the WHERE clause
+    in the earliest CTE that reads from FUND_TABLE, e.g.:
+        WHERE CAST(filing_date AS DATE) <= DATE '...'
+          AND CAST(filing_date AS DATE) >= DATE '...'
+          {universe_filter}
+
+    Parameters:
+        md_str: date string 'YYYY-MM-DD' representing the scoring month-end
+
+    Returns:
+        SQL fragment string (with leading newline + indent) or empty string
+    """
+    month = date.fromisoformat(md_str)
+    if month < UNIVERSE_START_DATE:
+        # Universe table does not cover this period -- score all available stocks
+        return ""
+    # SQL subquery: symbol must be in the active investable universe for this month
+    # Using string concatenation avoids any f-string multiline complexity
+    return (
+        " AND symbol IN ("
+        "SELECT symbol FROM " + UNIVERSE_TABLE + " "
+        "WHERE effective_start <= DATE '" + md_str + "' "
+        "AND effective_end >= DATE '" + md_str + "')"
+    )
+
+
+# ---------------------------------------------------------------------------
 # VALUE SCORE - 5 metrics (lower ratio = cheaper = better)
 # ---------------------------------------------------------------------------
 VALUE_METRICS = [("pfcf_ttm", 0.30, False), ("ev_ebitda_ttm", 0.25, False),
@@ -231,7 +281,13 @@ CREATE_VALUE_SQL = f"""CREATE TABLE IF NOT EXISTS {VALUE_TABLE} (
     PRIMARY KEY (symbol, month_date))"""
 
 
-def build_value_sql(md_str):
+def build_value_sql(md_str, universe_filter=""):
+    """
+    Build SQL query for Value score raw data.
+
+    universe_filter: SQL fragment from get_universe_filter() applied to numbered_filings
+                     to restrict to investable universe stocks for this scoring month.
+    """
     return f"""
     WITH trading_day AS (
         SELECT MAX(date) as td FROM {PRICE_TABLE}
@@ -254,7 +310,7 @@ def build_value_sql(md_str):
                ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS q_rank
         FROM {FUND_TABLE}
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}'
-          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'),
+          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'{universe_filter}),
     ttm AS (
         SELECT symbol,
             MAX(CASE WHEN q_rank=1 THEN as_of_filing_date END) AS as_of_filing_date,
@@ -319,8 +375,15 @@ def run_score_loop(mdc, score_name, table_name, create_sql, build_sql_fn,
     for i, month_date in enumerate(month_dates):
         md_str = month_date.strftime('%Y-%m-%d')
         t0 = time.time()
+
+        # Determine investable universe filter for this scoring month.
+        # Returns SQL IN subquery for months >= 2003-07-01, empty string otherwise.
+        universe_filter = get_universe_filter(md_str)
+        if universe_filter:
+            log.debug(f'{score_name} {md_str}: Applying investable universe filter.')
+
         try:
-            df = mdc.fetchdf(build_sql_fn(md_str))
+            df = mdc.fetchdf(build_sql_fn(md_str, universe_filter))
         except Exception as e:
             log.error(f'{score_name} {md_str}: SQL failed: {e}')
             continue
@@ -475,7 +538,13 @@ CREATE_QUALITY_SQL = f"""CREATE TABLE IF NOT EXISTS {QUALITY_TABLE} (
     PRIMARY KEY (symbol, month_date))"""
 
 
-def build_quality_sql(md_str):
+def build_quality_sql(md_str, universe_filter=""):
+    """
+    Build SQL query for Quality score raw data.
+
+    universe_filter: SQL fragment from get_universe_filter() applied to numbered_filings
+                     to restrict to investable universe stocks for this scoring month.
+    """
     return f"""
     WITH numbered_filings AS (
         SELECT symbol, date AS quarter_date,
@@ -487,7 +556,7 @@ def build_quality_sql(md_str):
                ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS q_rank
         FROM {FUND_TABLE}
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}'
-          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'),
+          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'{universe_filter}),
     ttm AS (
         SELECT symbol,
             MAX(CASE WHEN q_rank=1 THEN as_of_filing_date END) AS as_of_filing_date,
@@ -583,7 +652,13 @@ CREATE_FINSTR_SQL = f"""CREATE TABLE IF NOT EXISTS {FINSTR_TABLE} (
     PRIMARY KEY (symbol, month_date))"""
 
 
-def build_finstr_sql(md_str):
+def build_finstr_sql(md_str, universe_filter=""):
+    """
+    Build SQL query for Financial Strength score raw data.
+
+    universe_filter: SQL fragment from get_universe_filter() applied to numbered_filings
+                     to restrict to investable universe stocks for this scoring month.
+    """
     return f"""
     WITH numbered_filings AS (
         SELECT symbol, date AS quarter_date,
@@ -597,7 +672,7 @@ def build_finstr_sql(md_str):
                ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS q_rank
         FROM {FUND_TABLE}
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}'
-          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'),
+          AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'{universe_filter}),
     ttm AS (
         SELECT symbol,
             MAX(CASE WHEN q_rank=1 THEN as_of_filing_date END) AS as_of_filing_date,
@@ -792,7 +867,15 @@ def build_growth_signals(df):
     return pd.DataFrame(out_rows)
 
 
-def build_growth_sql(md_str):
+def build_growth_sql(md_str, universe_filter=""):
+    """
+    Build SQL query for Growth score raw data.
+
+    universe_filter: SQL fragment from get_universe_filter() applied to all 4 filing
+                     CTEs (numbered_filings, prior_1y_filings, prior_3y_filings,
+                     prior_5y_filings) to restrict to investable universe stocks.
+                     Applied at each CTE for maximum query efficiency.
+    """
     return f"""
     WITH numbered_filings AS (
         SELECT symbol, date AS quarter_date,
@@ -805,7 +888,7 @@ def build_growth_sql(md_str):
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}'
           AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '{STALENESS_DAYS} days'
           AND bs_commonStockSharesOutstanding IS NOT NULL
-          AND bs_commonStockSharesOutstanding > 0),
+          AND bs_commonStockSharesOutstanding > 0{universe_filter}),
     cur_ttm AS (
         SELECT symbol,
             MAX(CASE WHEN q_rank=1 THEN as_of_filing_date END) AS as_of_filing_date,
@@ -827,7 +910,7 @@ def build_growth_sql(md_str):
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}' - INTERVAL '9 months'
           AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '27 months'
           AND bs_commonStockSharesOutstanding IS NOT NULL
-          AND bs_commonStockSharesOutstanding > 0),
+          AND bs_commonStockSharesOutstanding > 0{universe_filter}),
     p1y AS (
         SELECT symbol,
             SUM(is_totalRevenue) / MAX(CASE WHEN q_rank=1 THEN shares_out END) AS rev_ps_1y,
@@ -847,7 +930,7 @@ def build_growth_sql(md_str):
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}' - INTERVAL '33 months'
           AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '51 months'
           AND bs_commonStockSharesOutstanding IS NOT NULL
-          AND bs_commonStockSharesOutstanding > 0),
+          AND bs_commonStockSharesOutstanding > 0{universe_filter}),
     p3y AS (
         SELECT symbol,
             SUM(is_totalRevenue) / MAX(CASE WHEN q_rank=1 THEN shares_out END) AS rev_ps_3y,
@@ -867,7 +950,7 @@ def build_growth_sql(md_str):
         WHERE CAST(filing_date AS DATE) <= DATE '{md_str}' - INTERVAL '57 months'
           AND CAST(filing_date AS DATE) >= DATE '{md_str}' - INTERVAL '75 months'
           AND bs_commonStockSharesOutstanding IS NOT NULL
-          AND bs_commonStockSharesOutstanding > 0),
+          AND bs_commonStockSharesOutstanding > 0{universe_filter}),
     p5y AS (
         SELECT symbol,
             SUM(is_totalRevenue) / MAX(CASE WHEN q_rank=1 THEN shares_out END) AS rev_ps_5y,

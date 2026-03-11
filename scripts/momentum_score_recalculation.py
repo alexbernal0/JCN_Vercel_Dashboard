@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 OBQ Momentum Score Recalculation
-Calculates AF Momentum, FIP Score, and SystemScore for stocks in MotherDuck PROD_EOD_survivorship.
+Calculates AF Momentum, FIP Score, and SystemScore for stocks in the
+PROD_OBQ_Investable_Universe (top 3000 by market cap, annually reconstituted
+in May). For months before 2003-07-01 all available stocks are scored.
 
 Data flow: MotherDuck (SQL CTE) -> Python (3-way scoring) -> MotherDuck (write)
 No local files. No temp tables. No OBQ_AI dependency.
@@ -25,6 +27,12 @@ PRICE_TABLE = "PROD_EODHD.main.PROD_EOD_survivorship"
 WEEKLY_TABLE = "PROD_EODHD.main.PROD_EOD_survivorship_Weekly"
 SCORE_SCHEMA = "PROD_EODHD.main"
 MOMENTUM_TABLE = f"{SCORE_SCHEMA}.PROD_OBQ_Momentum_Scores"
+# Investable universe: top-3000 by market cap, annually reconstituted in May.
+# Momentum scores are restricted to symbols in this table for each scoring month.
+UNIVERSE_TABLE = "PROD_EODHD.main.PROD_OBQ_Investable_Universe"
+# Universe table starts at the 2003 reconstitution (effective 2003-07-01).
+# Months before this date score all available stocks (no filtering).
+UNIVERSE_START_DATE = date(2003, 7, 1)
 MIN_SECTOR_PEERS = 3
 MIN_HISTORY_MONTHS = 8
 MIN_SYMBOLS_FOR_MONTH = 100
@@ -204,6 +212,48 @@ def get_month_ends(start, end):
 
 
 # ---------------------------------------------------------------------------
+# INVESTABLE UNIVERSE FILTER
+# ---------------------------------------------------------------------------
+def get_universe_filter(md_str):
+    """
+    Returns a SQL WHERE clause fragment that restricts scoring to stocks in the
+    PROD_OBQ_Investable_Universe table for the given scoring month.
+
+    The universe table holds top-3000 stocks by market cap, reconstituted annually
+    in May. Each row has effective_start / effective_end date bounds that define
+    which recon year covers a given scoring month.
+
+    For months before UNIVERSE_START_DATE (2003-07-01), returns an empty string
+    so all available stocks are scored (backward compatibility for early history).
+
+    For momentum, the filter is applied to the active_symbols CTE where symbols
+    have already been stripped of the '.US' suffix via REPLACE(). The universe
+    table also stores symbols without '.US', so no additional normalization is
+    needed.
+
+    Parameters:
+        md_str: date string 'YYYY-MM-DD' representing the scoring month-end
+
+    Returns:
+        SQL fragment string (with leading AND) or empty string
+    """
+    month = date.fromisoformat(md_str)
+    if month < UNIVERSE_START_DATE:
+        # Universe table does not cover this period -- score all available stocks
+        return ""
+    # SQL subquery: symbol must be in the active investable universe for this month.
+    # Universe table stores symbols WITH '.US' suffix (e.g. 'AAPL.US') but momentum
+    # SQL strips the suffix in month_prices CTE, so active_symbols has plain symbols.
+    # We strip '.US' in the subquery to match.
+    return (
+        " AND symbol IN ("
+        "SELECT REPLACE(symbol, '.US', '') FROM " + UNIVERSE_TABLE + " "
+        "WHERE effective_start <= DATE '" + md_str + "' "
+        "AND effective_end >= DATE '" + md_str + "')"
+    )
+
+
+# ---------------------------------------------------------------------------
 # SCORE_COMPONENT - 3-way scoring for a single momentum component
 # ---------------------------------------------------------------------------
 def score_component(raw_values, sector_map, history_dict, prefix):
@@ -287,10 +337,17 @@ CREATE_MOMENTUM_SQL = (
 
 # ---------------------------------------------------------------------------
 # SQL BUILDER - computes AF, FIP, SystemScore SERVER-SIDE in MotherDuck
-# Returns ~30-50K rows per month (one per symbol) instead of millions of price rows
+# Returns ~3000 rows per month (investable universe) instead of ~30-50K
 # ---------------------------------------------------------------------------
-def build_momentum_sql(md_str):
-    """Build SQL to compute all 3 momentum components server-side."""
+def build_momentum_sql(md_str, universe_filter=""):
+    """
+    Build SQL to compute all 3 momentum components server-side.
+
+    universe_filter: SQL fragment from get_universe_filter() applied to the
+                     active_symbols CTE to restrict to investable universe stocks.
+                     At that point symbols are already stripped of '.US' suffix
+                     (via REPLACE in month_prices), matching the universe table format.
+    """
     return f"""
     WITH month_prices AS (
         SELECT REPLACE(symbol, '.US', '') AS symbol, date, adjusted_close, gics_sector,
@@ -305,7 +362,7 @@ def build_momentum_sql(md_str):
         FROM month_prices
         WHERE rn = 1
         GROUP BY symbol
-        HAVING MAX(date) >= DATE '{md_str}' - INTERVAL '5' DAY
+        HAVING MAX(date) >= DATE '{md_str}' - INTERVAL '5' DAY{universe_filter}
     ),
     af_raw AS (
         SELECT mp.symbol,
@@ -463,8 +520,14 @@ def process_month(mdc, month_end, af_history, fip_history, sys_history, dry_run=
     md_str = month_end.strftime('%Y-%m-%d')
     t0 = time.time()
 
+    # Determine investable universe filter for this scoring month.
+    # Returns SQL IN subquery for months >= 2003-07-01, empty string otherwise.
+    universe_filter = get_universe_filter(md_str)
+    if universe_filter:
+        log.debug(f'{md_str}: Applying investable universe filter.')
+
     try:
-        df = mdc.fetchdf(build_momentum_sql(md_str))
+        df = mdc.fetchdf(build_momentum_sql(md_str, universe_filter))
     except Exception as e:
         log.error(f'{md_str}: SQL failed: {e}')
         return 0

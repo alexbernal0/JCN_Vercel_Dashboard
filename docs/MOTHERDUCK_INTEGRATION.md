@@ -54,11 +54,13 @@ Return to Frontend
 https://vercel.com/obsidianquantitative/jcn-tremor/settings/environment-variables
 
 **Required Variable:**
+
 ```
 MOTHERDUCK_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **How to Get Token:**
+
 1. Log in to MotherDuck: https://app.motherduck.com
 2. Go to Settings → API Tokens
 3. Create new token with read access to `PROD_EODHD` database
@@ -75,6 +77,7 @@ pandas==2.2.3
 ```
 
 **Install locally:**
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -92,6 +95,7 @@ import duckdb
 ```
 
 **Why This Works:**
+
 - Vercel serverless functions have read-only filesystem except `/tmp`
 - DuckDB needs to write config files to `~/.duckdb/`
 - Setting `HOME=/tmp` redirects DuckDB to write to `/tmp/.duckdb/`
@@ -104,15 +108,22 @@ import duckdb
 ### PROD_EODHD Database
 
 **Tables:**
+
 1. `PROD_EOD_survivorship` - Daily historical prices (51.7M rows); symbol with `.US`
 2. `PROD_EOD_ETFs` - ETF data (e.g. SPY for benchmarks)
 3. `PROD_Fundamentals` - Quarterly fundamental metrics (450K rows) when needed
-4. `PROD_OBQ_Scores` - OBQ scores (value, growth, financial strength, quality); symbol **without** `.US` (e.g. `AAPL`)
-5. `PROD_OBQ_Momentum_Scores` - Momentum scores; symbol **with** `.US` (e.g. `AAPL.US`)
+4. `PROD_OBQ_Investable_Universe` - Top 3000 by market cap, annually reconstituted in May
+5. `PROD_OBQ_Value_Scores` - Value factor scores; symbol with `.US` (e.g. `AAPL.US`)
+6. `PROD_OBQ_Quality_Scores` - Quality factor scores; symbol with `.US`
+7. `PROD_OBQ_FinStr_Scores` - Financial Strength scores; symbol with `.US`
+8. `PROD_OBQ_Growth_Scores` - Growth factor scores; symbol with `.US`
+9. `PROD_OBQ_Momentum_Scores` - Momentum scores; symbol **without** `.US` (e.g. `AAPL`)
+10. `PROD_JCN_Composite_Scores` - 8 JCN blend presets; symbol with `.US`
 
 ### PROD_EOD_survivorship Table
 
 **Columns:**
+
 - `symbol` (VARCHAR) - Stock ticker with `.US` suffix (e.g., `AAPL.US`)
 - `date` (DATE) - Trading date (1962-01-02 to 2026-01-27)
 - `open` (DOUBLE) - Opening price
@@ -128,6 +139,7 @@ import duckdb
 - `market_cap` (BIGINT) - Market capitalization
 
 **Key Facts:**
+
 - **Total rows:** 51,700,000+
 - **Date range:** 1962-01-02 to 2026-01-27
 - **Update frequency:** Daily (end-of-day)
@@ -136,6 +148,7 @@ import duckdb
 ### PROD_Fundamentals Table
 
 **Columns:** 124 total
+
 - `symbol` (VARCHAR) - Stock ticker with `.US` suffix
 - `quarter_date` (DATE) - Fiscal quarter end date
 - `filing_date` (DATE) - SEC filing date
@@ -144,21 +157,32 @@ import duckdb
 - `cf_*` (DOUBLE) - Cash flow metrics (29 columns)
 
 **Key Facts:**
+
 - **Total rows:** 450,000+
 - **Update frequency:** Quarterly
 - **Metrics:** 122 financial metrics per quarter
 
-### PROD_OBQ_Scores Table
+### OBQ Score Tables (Investable Universe Only)
 
-**Symbol format:** No `.US` suffix (e.g. `AAPL`, `SPMO`).
+All factor scores are computed against the **investable universe** (top 3,000 stocks by market cap, reconstituted annually in May matching Russell 3000 methodology).
 
-**Score columns used by app:** `value_universe_score` (or `value_historical_score`, `value_sector_score`), `growth_score`, `fs_score`, `quality_score`. Latest row per symbol by `month_date`.
+**5 Factor Score Tables:**
 
-### PROD_OBQ_Momentum_Scores Table
+| Table                    | Key Column               | Symbol Format   | Symbols/month |
+| ------------------------ | ------------------------ | --------------- | ------------- |
+| PROD_OBQ_Value_Scores    | value_score_composite    | `.US` (AAPL.US) | ~2,650        |
+| PROD_OBQ_Quality_Scores  | quality_score_composite  | `.US` (AAPL.US) | ~2,750        |
+| PROD_OBQ_FinStr_Scores   | finstr_score_composite   | `.US` (AAPL.US) | ~2,750        |
+| PROD_OBQ_Growth_Scores   | growth_score_composite   | `.US` (AAPL.US) | ~2,760        |
+| PROD_OBQ_Momentum_Scores | momentum_score_composite | No `.US` (AAPL) | ~2,950        |
 
-**Symbol format:** `.US` suffix (e.g. `AAPL.US`).
+Each factor has 3-way scoring: `*_score_universe` (40%) + `*_score_sector` (40%) + `*_score_history` (20%) = `*_score_composite`.
 
-**Score columns used:** `obq_momentum_score`; fallback `systemscore` when null. Latest row per symbol by `week_end_date`.
+**Composite Table:** `PROD_JCN_Composite_Scores` — 8 blend presets (jcn_full_composite, jcn_qarp, jcn_garp, etc.). Symbol format: `.US`.
+
+**Investable Universe:** `PROD_OBQ_Investable_Universe` — ~3,000 symbols per reconstitution year, effective July 1 through June 30.
+
+**Note:** Momentum stores bare symbols because the momentum SQL strips `.US` when computing from price data. The composite script normalizes by appending `.US` before merging. API endpoints handle both formats.
 
 ---
 
@@ -169,10 +193,10 @@ import duckdb
 **MotherDuck uses `.US` suffix for all US stocks.**
 
 | User Input | MotherDuck Query | Display to User |
-|------------|------------------|-----------------|
-| `AAPL` | `AAPL.US` | `AAPL` |
-| `TSLA` | `TSLA.US` | `TSLA` |
-| `MSFT` | `MSFT.US` | `MSFT` |
+| ---------- | ---------------- | --------------- |
+| `AAPL`     | `AAPL.US`        | `AAPL`          |
+| `TSLA`     | `TSLA.US`        | `TSLA`          |
+| `MSFT`     | `MSFT.US`        | `MSFT`          |
 
 ### Code Pattern
 
@@ -209,17 +233,17 @@ os.environ['HOME'] = '/tmp'
 def get_motherduck_connection():
     """
     Create MotherDuck connection for Vercel serverless environment.
-    
+
     Returns:
         duckdb.DuckDBPyConnection: Connected database instance
     """
     token = os.getenv('MOTHERDUCK_TOKEN')
     if not token:
         raise ValueError("MOTHERDUCK_TOKEN environment variable not set")
-    
+
     # Connect to MotherDuck
     conn = duckdb.connect(f'md:PROD_EODHD?motherduck_token={token}')
-    
+
     return conn
 
 # Usage
@@ -260,20 +284,20 @@ def query_with_retry(query: str, max_retries: int = 3):
 def get_latest_prices(tickers: List[str]) -> pd.DataFrame:
     """
     Get the most recent closing price for multiple stocks.
-    
+
     Args:
         tickers: List of stock symbols (without .US suffix)
-        
+
     Returns:
         DataFrame with columns: symbol, date, close
     """
     # Add .US suffix
     tickers_with_suffix = [f"{t}.US" for t in tickers]
-    
+
     conn = get_motherduck_connection()
-    
+
     query = f"""
-    SELECT 
+    SELECT
         symbol,
         date,
         close as current_price
@@ -281,13 +305,13 @@ def get_latest_prices(tickers: List[str]) -> pd.DataFrame:
     WHERE symbol IN ({','.join([f"'{t}'" for t in tickers_with_suffix])})
         AND date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship)
     """
-    
+
     result = conn.execute(query).fetchdf()
     conn.close()
-    
+
     # Remove .US suffix for display
     result['symbol'] = result['symbol'].str.replace('.US', '')
-    
+
     return result
 ```
 
@@ -297,21 +321,21 @@ def get_latest_prices(tickers: List[str]) -> pd.DataFrame:
 def get_historical_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
     """
     Get historical OHLCV data for a single stock.
-    
+
     Args:
         ticker: Stock symbol (without .US suffix)
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD)
-        
+
     Returns:
         DataFrame with columns: date, open, high, low, close, volume
     """
     ticker_with_suffix = f"{ticker}.US"
-    
+
     conn = get_motherduck_connection()
-    
+
     query = f"""
-    SELECT 
+    SELECT
         date,
         open,
         high,
@@ -324,10 +348,10 @@ def get_historical_data(ticker: str, start_date: str, end_date: str) -> pd.DataF
         AND date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
     ORDER BY date ASC
     """
-    
+
     result = conn.execute(query).fetchdf()
     conn.close()
-    
+
     return result
 ```
 
@@ -338,7 +362,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
     """
     Get comprehensive data for portfolio calculations.
     Fetches all required data in a SINGLE optimized query.
-    
+
     Returns:
     - Latest price
     - Previous day close
@@ -347,19 +371,19 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
     - 52-week high and low
     """
     tickers_with_suffix = [f"{t}.US" for t in tickers]
-    
+
     conn = get_motherduck_connection()
-    
+
     query = f"""
     WITH latest_date AS (
-        SELECT MAX(date) as max_date 
+        SELECT MAX(date) as max_date
         FROM PROD_EODHD.main.PROD_EOD_survivorship
     ),
     ytd_start AS (
         SELECT DATE '{datetime.now().year}-01-01' as ytd_date
     ),
     stock_prices AS (
-        SELECT 
+        SELECT
             symbol,
             date,
             close,
@@ -378,7 +402,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
         SELECT * FROM stock_prices WHERE rn_desc = 2
     ),
     ytd_prices AS (
-        SELECT 
+        SELECT
             symbol,
             close as ytd_price
         FROM stock_prices
@@ -387,7 +411,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
         LIMIT (SELECT COUNT(DISTINCT symbol) FROM stock_prices)
     ),
     year_ago_prices AS (
-        SELECT 
+        SELECT
             symbol,
             close as year_ago_price
         FROM stock_prices
@@ -396,7 +420,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
         LIMIT (SELECT COUNT(DISTINCT symbol) FROM stock_prices)
     ),
     week_52_stats AS (
-        SELECT 
+        SELECT
             symbol,
             MAX(high) as week_52_high,
             MIN(low) as week_52_low
@@ -404,7 +428,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
         WHERE rn_desc <= 252  -- ~252 trading days in a year
         GROUP BY symbol
     )
-    SELECT 
+    SELECT
         l.symbol,
         l.date as latest_date,
         l.close as current_price,
@@ -421,10 +445,10 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
     LEFT JOIN year_ago_prices ya ON l.symbol = ya.symbol
     LEFT JOIN week_52_stats w ON l.symbol = w.symbol
     """
-    
+
     result = conn.execute(query).fetchdf()
     conn.close()
-    
+
     # Process results into dictionary
     data = {}
     for _, row in result.iterrows():
@@ -439,7 +463,7 @@ def get_portfolio_data(tickers: List[str]) -> Dict:
             'sector': row['gics_sector'],
             'industry': row['industry']
         }
-    
+
     return data
 ```
 
@@ -476,19 +500,19 @@ def ensure_cache_dir():
 def load_cache() -> Dict:
     """Load cached MotherDuck data."""
     ensure_cache_dir()
-    
+
     if not os.path.exists(MOTHERDUCK_CACHE_FILE):
         return None
-    
+
     try:
         with open(MOTHERDUCK_CACHE_FILE, 'r') as f:
             cache = json.load(f)
-        
+
         # Check if cache is from today
         cache_date = cache.get('cache_date')
         if cache_date != str(date.today()):
             return None
-        
+
         return cache
     except Exception as e:
         print(f"Error loading cache: {e}")
@@ -497,20 +521,20 @@ def load_cache() -> Dict:
 def save_cache(data: Dict):
     """Save MotherDuck data to cache."""
     ensure_cache_dir()
-    
+
     cache = {
         'cache_date': str(date.today()),
         'loaded_at': datetime.now().isoformat(),
         'data': data
     }
-    
+
     with open(MOTHERDUCK_CACHE_FILE, 'w') as f:
         json.dump(cache, f)
 
 def fetch_motherduck_data(tickers: List[str]) -> Dict:
     """
     Fetch data from MotherDuck with smart caching.
-    
+
     Cache Logic:
     1. Check if cache exists and is from today
     2. Check if ALL requested tickers are in cache
@@ -518,30 +542,30 @@ def fetch_motherduck_data(tickers: List[str]) -> Dict:
     4. If no: Query MotherDuck, update cache, return data
     """
     cache = load_cache()
-    
+
     # Check if cache is valid and has all tickers
     if cache:
         cached_data = cache.get('data', {})
         all_tickers_cached = all(f"{t}.US" in cached_data for t in tickers)
-        
+
         if all_tickers_cached:
             print(f"Cache HIT: Returning cached data for {len(tickers)} tickers")
             return cached_data
-    
+
     print(f"Cache MISS: Fetching from MotherDuck for {len(tickers)} tickers")
-    
+
     # Fetch from MotherDuck
     data = query_motherduck(tickers)
-    
+
     # Merge with existing cache (preserve other tickers)
     if cache:
         cached_data = cache.get('data', {})
         cached_data.update(data)
         data = cached_data
-    
+
     # Save to cache
     save_cache(data)
-    
+
     return data
 ```
 
@@ -563,12 +587,12 @@ if cache_date == today and all_tickers_in_cache:
 
 ### Cache Performance
 
-| Scenario | Response Time | MotherDuck Query |
-|----------|---------------|------------------|
-| Cache HIT (all tickers) | <100ms | No |
-| Cache MISS (new day) | 2-3 seconds | Yes (all tickers) |
-| Cache PARTIAL (new ticker) | 2-3 seconds | Yes (all tickers) |
-| Manual refresh | 2-3 seconds | Yes (all tickers) |
+| Scenario                   | Response Time | MotherDuck Query  |
+| -------------------------- | ------------- | ----------------- |
+| Cache HIT (all tickers)    | <100ms        | No                |
+| Cache MISS (new day)       | 2-3 seconds   | Yes (all tickers) |
+| Cache PARTIAL (new ticker) | 2-3 seconds   | Yes (all tickers) |
+| Manual refresh             | 2-3 seconds   | Yes (all tickers) |
 
 ---
 
@@ -587,7 +611,7 @@ def safe_motherduck_query(query: str, max_retries: int = 3):
             result = conn.execute(query).fetchdf()
             conn.close()
             return result
-            
+
         except duckdb.ConnectionException as e:
             print(f"Connection error (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt == max_retries - 1:
@@ -596,7 +620,7 @@ def safe_motherduck_query(query: str, max_retries: int = 3):
                     detail="MotherDuck connection failed after retries"
                 )
             time.sleep(2 ** attempt)  # Exponential backoff
-            
+
         except duckdb.BinderException as e:
             # SQL syntax error - don't retry
             print(f"SQL error: {e}")
@@ -604,7 +628,7 @@ def safe_motherduck_query(query: str, max_retries: int = 3):
                 status_code=500,
                 detail=f"Database query error: {str(e)}"
             )
-            
+
         except Exception as e:
             print(f"Unexpected error: {e}")
             raise HTTPException(
@@ -622,21 +646,21 @@ def validate_motherduck_result(result: pd.DataFrame, expected_tickers: List[str]
     """
     if result.empty:
         raise ValueError("MotherDuck returned no data")
-    
+
     # Check for missing tickers
     returned_tickers = set(result['symbol'].str.replace('.US', ''))
     expected_set = set(expected_tickers)
     missing = expected_set - returned_tickers
-    
+
     if missing:
         print(f"Warning: Missing data for tickers: {missing}")
-    
+
     # Check for NULL values in critical columns
     critical_columns = ['date', 'close']
     for col in critical_columns:
         if result[col].isnull().any():
             print(f"Warning: NULL values found in {col} column")
-    
+
     return result
 ```
 
@@ -647,6 +671,7 @@ def validate_motherduck_result(result: pd.DataFrame, expected_tickers: List[str]
 ### 1. Single Query for Multiple Stocks
 
 **❌ BAD: N queries for N stocks**
+
 ```python
 for ticker in tickers:
     query = f"SELECT * FROM table WHERE symbol = '{ticker}'"
@@ -655,9 +680,10 @@ for ticker in tickers:
 ```
 
 **✅ GOOD: 1 query for all stocks**
+
 ```python
 query = f"""
-SELECT * FROM table 
+SELECT * FROM table
 WHERE symbol IN ({','.join([f"'{t}'" for t in tickers])})
 """
 result = conn.execute(query).fetchdf()
@@ -667,6 +693,7 @@ result = conn.execute(query).fetchdf()
 ### 2. Filter Early, Aggregate Late
 
 **❌ BAD: Fetch all data then filter**
+
 ```python
 query = "SELECT * FROM PROD_EOD_survivorship"  # 51.7M rows!
 result = conn.execute(query).fetchdf()
@@ -674,6 +701,7 @@ filtered = result[result['symbol'].isin(tickers)]  # Filter in Python
 ```
 
 **✅ GOOD: Filter in SQL**
+
 ```python
 query = f"""
 SELECT * FROM PROD_EOD_survivorship
@@ -686,6 +714,7 @@ result = conn.execute(query).fetchdf()  # Only relevant rows
 ### 3. Use Window Functions
 
 **❌ BAD: Multiple queries for different time periods**
+
 ```python
 latest = "SELECT * FROM table WHERE date = MAX(date)"
 prev = "SELECT * FROM table WHERE date = MAX(date) - 1"
@@ -693,9 +722,10 @@ ytd = "SELECT * FROM table WHERE date = '2026-01-01'"
 ```
 
 **✅ GOOD: Single query with window functions**
+
 ```python
 query = """
-SELECT 
+SELECT
     symbol,
     date,
     close,
@@ -708,12 +738,14 @@ WHERE date >= '2025-01-01'
 
 ### 4. Limit Columns
 
-**❌ BAD: SELECT ***
+**❌ BAD: SELECT \***
+
 ```python
 query = "SELECT * FROM PROD_EOD_survivorship"  # 15 columns
 ```
 
 **✅ GOOD: SELECT only needed columns**
+
 ```python
 query = "SELECT symbol, date, close FROM PROD_EOD_survivorship"  # 3 columns
 ```
@@ -755,11 +787,13 @@ curl https://jcn-tremor.vercel.app/api/health
 ### Issue: "Could not locate home directory"
 
 **Error:**
+
 ```
 duckdb.IOException: IO Error: Could not locate home directory
 ```
 
 **Solution:**
+
 ```python
 import os
 os.environ['HOME'] = '/tmp'  # MUST be before import duckdb
@@ -769,6 +803,7 @@ import duckdb
 ### Issue: "Referenced column not found"
 
 **Error:**
+
 ```
 duckdb.BinderException: Binder Error: Referenced column "code" not found
 ```
@@ -825,23 +860,23 @@ os.environ['HOME'] = '/tmp'
 def get_stock_data(tickers: List[str]) -> Dict:
     """
     Reusable template for fetching stock data from MotherDuck.
-    
+
     Args:
         tickers: List of stock symbols (without .US suffix)
-        
+
     Returns:
         Dictionary with stock data
     """
     # 1. Add .US suffix
     tickers_with_suffix = [f"{t}.US" for t in tickers]
-    
+
     # 2. Connect to MotherDuck
     token = os.getenv('MOTHERDUCK_TOKEN')
     conn = duckdb.connect(f'md:PROD_EODHD?motherduck_token={token}')
-    
+
     # 3. Execute query
     query = f"""
-    SELECT 
+    SELECT
         symbol,
         date,
         close
@@ -849,10 +884,10 @@ def get_stock_data(tickers: List[str]) -> Dict:
     WHERE symbol IN ({','.join([f"'{t}'" for t in tickers_with_suffix])})
         AND date = (SELECT MAX(date) FROM PROD_EODHD.main.PROD_EOD_survivorship)
     """
-    
+
     result = conn.execute(query).fetchdf()
     conn.close()
-    
+
     # 4. Process results
     data = {}
     for _, row in result.iterrows():
@@ -861,7 +896,7 @@ def get_stock_data(tickers: List[str]) -> Dict:
             'price': row['close'],
             'date': row['date']
         }
-    
+
     return data
 ```
 
@@ -870,6 +905,7 @@ def get_stock_data(tickers: List[str]) -> Dict:
 ## Version History
 
 ### v1.0.0 (February 17, 2026)
+
 - ✅ Initial production release
 - ✅ Rock-solid serverless integration
 - ✅ 24-hour smart caching

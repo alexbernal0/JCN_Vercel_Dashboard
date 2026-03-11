@@ -15,13 +15,13 @@ graph TB
         B[Tremor Chart Component]
         C[Display Results]
     end
-    
+
     subgraph "Next.js Frontend (Vercel)"
         D[Page Component]
         E[Fetch API Call]
         F[next.config.mjs Rewrite]
     end
-    
+
     subgraph "Python Backend (Vercel Serverless)"
         G[FastAPI Router]
         H[Endpoint Handler]
@@ -31,12 +31,12 @@ graph TB
         L[Data Processing]
         M[Cache Layer]
     end
-    
+
     subgraph "External Services"
         N[(MotherDuck Database)]
         O[Yahoo Finance API]
     end
-    
+
     A --> D
     D --> E
     E --> F
@@ -58,7 +58,7 @@ graph TB
     E --> B
     B --> C
     C --> A
-    
+
     style A fill:#e1f5ff
     style C fill:#e1f5ff
     style G fill:#fff4e1
@@ -67,7 +67,6 @@ graph TB
 ```
 
 ---
-
 
 ---
 
@@ -111,11 +110,23 @@ Stage 3: Audit and Report
 
 ### Data Sources
 
-| Source | Endpoint | Data |
-|--------|----------|------|
-| EODHD API | eod-bulk-last-day/US | All US symbols daily OHLC |
-| MotherDuck | DEV_EODHD_DATA | Staging tables |
-| MotherDuck | PROD_EODHD | Production tables (121.7M+ rows) |
+| Source     | Endpoint             | Data                          |
+| ---------- | -------------------- | ----------------------------- |
+| EODHD API  | eod-bulk-last-day/US | All US symbols daily OHLC     |
+| MotherDuck | DEV_EODHD_DATA       | Staging tables                |
+| MotherDuck | PROD_EODHD           | Production tables (74M+ rows) |
+
+### Score Recalculation (Offline, Post-Sync)
+
+After month-end data arrives, run score recalculation scripts locally:
+
+```
+python scripts/score_recalculation.py --score all     # Value, Quality, Growth, FinStr
+python scripts/momentum_score_recalculation.py         # Momentum
+python scripts/composite_score_recalculation.py        # 8 JCN blend presets
+```
+
+All scores are computed against the **investable universe** (top 3,000 stocks by market cap, reconstituted annually in May). See `docs/PROCEDURES.md` for full details.
 
 ### Key Design Decisions
 
@@ -124,6 +135,7 @@ Stage 3: Audit and Report
 3. **Idempotent stages**: Safe to re-run any stage at any time
 4. **Gate checks**: Each stage returns can_proceed flag; pipeline stops on failure
 5. **Self-healing**: Stage 3 detects and recommends fixes for common issues
+6. **Investable universe scoring**: Factor scores rank only top 3000 stocks, not full ~10K universe
 
 ## 🏗️ Architecture Explained (Simple Terms)
 
@@ -151,30 +163,34 @@ Stage 3: Audit and Report
 ### Example: User wants to see portfolio performance
 
 **Step 1: User Action**
+
 ```
 User clicks on "Overview" page
 ```
 
 **Step 2: Frontend Request**
+
 ```javascript
 // In src/app/overview/page.tsx
-const response = await fetch('/api/portfolio/performance', {
-  method: 'POST',
+const response = await fetch("/api/portfolio/performance", {
+  method: "POST",
   body: JSON.stringify({
-    symbols: ['AAPL', 'GOOGL'],
-    start_date: '2024-01-01',
-    end_date: '2026-02-15'
-  })
-});
+    symbols: ["AAPL", "GOOGL"],
+    start_date: "2024-01-01",
+    end_date: "2026-02-15",
+  }),
+})
 ```
 
 **Step 3: Next.js Rewrite**
+
 ```javascript
 // next.config.mjs automatically rewrites:
 // /api/portfolio/performance → /api/ (Python function)
 ```
 
 **Step 4: FastAPI Receives Request**
+
 ```python
 # In api/index.py
 @app.post("/api/portfolio/performance")
@@ -183,6 +199,7 @@ async def get_portfolio_performance(request: PortfolioRequest):
 ```
 
 **Step 5: Python Does the Work**
+
 ```python
 # Inside the function:
 1. Check cache (already calculated?)
@@ -195,9 +212,10 @@ async def get_portfolio_performance(request: PortfolioRequest):
 ```
 
 **Step 6: Data Returns to Frontend**
+
 ```javascript
 // Back in page.tsx
-const data = await response.json();
+const data = await response.json()
 // data = {
 //   "AAPL": { return: 25.5%, volatility: 18.2%, ... },
 //   "GOOGL": { return: 18.3%, volatility: 22.1%, ... }
@@ -205,6 +223,7 @@ const data = await response.json();
 ```
 
 **Step 7: Tremor Displays Results**
+
 ```javascript
 <AreaChart
   data={data}
@@ -218,12 +237,14 @@ const data = await response.json();
 ## 🧩 Where Does Each Part Live?
 
 ### Frontend Files
+
 ```
 src/app/overview/page.tsx          ← Page component
 src/components/PortfolioChart.tsx  ← Reusable chart component
 ```
 
 ### Backend Files
+
 ```
 api/index.py                       ← All Python code
   ├── FastAPI app setup
@@ -234,6 +255,7 @@ api/index.py                       ← All Python code
 ```
 
 ### Configuration Files
+
 ```
 next.config.mjs                    ← Routes /api/* to Python
 vercel.json                        ← Tells Vercel about Python
@@ -259,23 +281,23 @@ async def get_portfolio_performance(request: PortfolioRequest):
     4. Calculates performance metrics
     5. Returns JSON
     """
-    
+
     # Step 1: Extract request data
     symbols = request.symbols
     start_date = request.start_date
     end_date = request.end_date
-    
+
     # Step 2: Get data from MotherDuck
     md_data = get_motherduck_data(symbol)
-    
+
     # Step 3: Get current prices
     current_prices = await get_current_prices(symbols)
-    
+
     # Step 4: Calculate metrics
     returns = calculate_returns(md_data, current_prices)
     volatility = calculate_volatility(md_data)
     sharpe = calculate_sharpe_ratio(returns, volatility)
-    
+
     # Step 5: Return results
     return {
         "symbol": symbol,
@@ -288,6 +310,7 @@ async def get_portfolio_performance(request: PortfolioRequest):
 ### Where Calculations Happen
 
 **MotherDuck Queries** (lines 162-200)
+
 ```python
 def get_motherduck_data(symbol: str):
     """
@@ -307,6 +330,7 @@ def get_motherduck_data(symbol: str):
 ```
 
 **Current Price Fetching** (lines 220-260)
+
 ```python
 async def get_current_prices(symbols: List[str]):
     """
@@ -321,6 +345,7 @@ async def get_current_prices(symbols: List[str]):
 ```
 
 **Performance Calculations** (lines 280-350)
+
 ```python
 def calculate_returns(historical, current):
     """
@@ -349,21 +374,21 @@ def calculate_volatility(historical):
 
 ```javascript
 // In your page component
-import { AreaChart } from '@tremor/react';
+import { AreaChart } from "@tremor/react"
 
 export default function OverviewPage() {
-  const [data, setData] = useState([]);
-  
+  const [data, setData] = useState([])
+
   useEffect(() => {
     // Fetch data from Python API
-    fetch('/api/portfolio/performance', {
-      method: 'POST',
-      body: JSON.stringify({ symbols: ['AAPL', 'GOOGL'] })
+    fetch("/api/portfolio/performance", {
+      method: "POST",
+      body: JSON.stringify({ symbols: ["AAPL", "GOOGL"] }),
     })
-    .then(res => res.json())
-    .then(data => setData(data));
-  }, []);
-  
+      .then((res) => res.json())
+      .then((data) => setData(data))
+  }, [])
+
   return (
     <AreaChart
       data={data}
@@ -371,11 +396,12 @@ export default function OverviewPage() {
       categories={["AAPL", "GOOGL"]}
       colors={["blue", "green"]}
     />
-  );
+  )
 }
 ```
 
 **Key Points:**
+
 - Tremor doesn't manage data - React does
 - You fetch data from Python API
 - Store it in React state
@@ -389,6 +415,7 @@ export default function OverviewPage() {
 ### Method 1: Add New API Endpoint
 
 **Step 1: Add endpoint to `api/index.py`**
+
 ```python
 @app.get("/api/stock-screener")
 async def screen_stocks(
@@ -409,49 +436,54 @@ async def screen_stocks(
 ```
 
 **Step 2: Test it**
+
 ```bash
 curl https://jcn-tremor.vercel.app/api/stock-screener?min_pe=10&max_pe=20
 ```
 
 **Step 3: Use it in frontend**
+
 ```javascript
-const response = await fetch('/api/stock-screener?min_pe=10&max_pe=20');
-const data = await response.json();
+const response = await fetch("/api/stock-screener?min_pe=10&max_pe=20")
+const data = await response.json()
 ```
 
 ### Method 2: Add New Page
 
 **Step 1: Create page file**
+
 ```bash
 src/app/screener/page.tsx
 ```
 
 **Step 2: Add page component**
+
 ```javascript
-'use client';
-import { useState } from 'react';
-import { Table } from '@tremor/react';
+"use client"
+import { useState } from "react"
+import { Table } from "@tremor/react"
 
 export default function ScreenerPage() {
-  const [stocks, setStocks] = useState([]);
-  
+  const [stocks, setStocks] = useState([])
+
   const handleScreen = async () => {
-    const res = await fetch('/api/stock-screener?min_pe=10&max_pe=20');
-    const data = await res.json();
-    setStocks(data.stocks);
-  };
-  
+    const res = await fetch("/api/stock-screener?min_pe=10&max_pe=20")
+    const data = await res.json()
+    setStocks(data.stocks)
+  }
+
   return (
     <div>
       <h1>Stock Screener</h1>
       <button onClick={handleScreen}>Screen Stocks</button>
       <Table data={stocks} />
     </div>
-  );
+  )
 }
 ```
 
 **Step 3: Access it**
+
 ```
 https://jcn-tremor.vercel.app/screener
 ```
@@ -459,13 +491,15 @@ https://jcn-tremor.vercel.app/screener
 ### Method 3: Add New Chart Component
 
 **Step 1: Create component file**
+
 ```bash
 src/components/StockComparisonChart.tsx
 ```
 
 **Step 2: Add component**
+
 ```javascript
-import { BarChart } from '@tremor/react';
+import { BarChart } from "@tremor/react"
 
 export function StockComparisonChart({ data }) {
   return (
@@ -475,15 +509,16 @@ export function StockComparisonChart({ data }) {
       categories={["return", "volatility"]}
       colors={["blue", "red"]}
     />
-  );
+  )
 }
 ```
 
 **Step 3: Use it in any page**
-```javascript
-import { StockComparisonChart } from '@/components/StockComparisonChart';
 
-<StockComparisonChart data={portfolioData} />
+```javascript
+import { StockComparisonChart } from "@/components/StockComparisonChart"
+
+;<StockComparisonChart data={portfolioData} />
 ```
 
 ---
@@ -491,12 +526,14 @@ import { StockComparisonChart } from '@/components/StockComparisonChart';
 ## 🛡️ How to Avoid Breaking Things
 
 ### Rule 1: Never Touch These Files
+
 ```
 next.config.mjs    ← API routing (already configured)
 vercel.json        ← Deployment config (already configured)
 ```
 
 ### Rule 2: Always Test Locally First
+
 ```bash
 # Terminal 1: Run Python API
 cd api
@@ -512,6 +549,7 @@ curl http://localhost:3000/api/your-new-endpoint
 ### Rule 3: Follow the Pattern
 
 **For new API endpoints:**
+
 ```python
 @app.get("/api/your-endpoint")  # ← Must start with /api/
 async def your_function():      # ← Use async
@@ -524,9 +562,10 @@ async def your_function():      # ← Use async
 ```
 
 **For new pages:**
+
 ```javascript
-'use client';  // ← Always add this at top
-import { useState, useEffect } from 'react';
+"use client" // ← Always add this at top
+import { useState, useEffect } from "react"
 
 export default function YourPage() {
   // Your component
@@ -534,6 +573,7 @@ export default function YourPage() {
 ```
 
 ### Rule 4: Use the Cache
+
 ```python
 # Check cache first
 cached = get_from_cache(cache_key, TTL)
@@ -555,21 +595,25 @@ return result
 ### Common Tasks
 
 **Add new stock metric:**
+
 1. Add calculation function to `api/index.py`
 2. Add to endpoint response
 3. Display in Tremor chart
 
 **Add new filter:**
+
 1. Add parameter to API endpoint
 2. Update SQL query
 3. Add input field in frontend
 
 **Add new page:**
+
 1. Create `src/app/[page-name]/page.tsx`
 2. Fetch data from API
 3. Use Tremor components to display
 
 **Add new chart type:**
+
 1. Import from `@tremor/react`
 2. Format data correctly
 3. Pass to component
@@ -582,16 +626,19 @@ return result
 User → Next.js Page → API Call → FastAPI → MotherDuck/yfinance → Calculation → Return JSON → Tremor Chart
 
 **Where Things Happen:**
+
 - **Frontend:** `src/app/` (pages) + `src/components/` (reusable components)
 - **Backend:** `api/index.py` (all Python logic)
 - **Database:** MotherDuck (SQL queries)
 
 **How to Add Modules:**
+
 1. Add API endpoint in `api/index.py`
 2. Create page in `src/app/[name]/page.tsx`
 3. Fetch data and display with Tremor
 
 **How to Stay Safe:**
+
 - Test locally first
 - Follow the patterns
 - Don't touch config files

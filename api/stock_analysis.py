@@ -485,12 +485,14 @@ def _build_quality_scores(conn, symbol_md: str) -> dict:
     scores = {}
     for score_key, (table_name, col_name) in SCORE_TABLES.items():
         try:
+            # Momentum stores plain symbols (AAPL); all others use .US (AAPL.US)
+            sym_param = symbol_md.replace(".US", "") if score_key == "momentum" else symbol_md
             row = conn.execute(f"""
                 SELECT {col_name}
                 FROM {table_name}
                 WHERE symbol = ?
                   AND month_date = (SELECT MAX(month_date) FROM {table_name})
-            """, [symbol_md]).fetchone()
+            """, [sym_param]).fetchone()
             if row and row[0] is not None:
                 scores[score_key] = round(float(row[0]), 1)
         except Exception as e:

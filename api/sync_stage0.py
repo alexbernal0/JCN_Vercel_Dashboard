@@ -80,11 +80,13 @@ REQUIRED_TABLES = {
     "PROD_EODHD.main.PROD_EOD_survivorship": "PROD EOD daily prices",
     "PROD_EODHD.main.PROD_EOD_survivorship_Weekly": "PROD EOD weekly prices",
     "PROD_EODHD.main.PROD_EOD_ETFs": "PROD ETF prices",
+    "PROD_EODHD.main.PROD_OBQ_Investable_Universe": "PROD Top-3000 investable universe",
     "PROD_EODHD.main.PROD_OBQ_Value_Scores": "PROD Value scores",
     "PROD_EODHD.main.PROD_OBQ_Quality_Scores": "PROD Quality scores",
     "PROD_EODHD.main.PROD_OBQ_FinStr_Scores": "PROD Financial Strength scores",
     "PROD_EODHD.main.PROD_OBQ_Growth_Scores": "PROD Growth scores",
     "PROD_EODHD.main.PROD_OBQ_Momentum_Scores": "PROD Momentum scores",
+    "PROD_EODHD.main.PROD_JCN_Composite_Scores": "PROD JCN Composite blend scores",
     "PROD_EODHD.main.PROD_SYNC_LOG": "PROD sync audit log",
 }
 
@@ -242,11 +244,13 @@ def _check_schemas_and_tables(conn):
         "survivorship_Weekly": "week_end_date",
         "Fundamentals": "as_of_filing_date",
         "SYNC_LOG": "sync_date",
+        "Investable_Universe": "effective_start",
         "Value_Scores": "month_date",
         "Quality_Scores": "month_date",
         "FinStr_Scores": "month_date",
         "Growth_Scores": "month_date",
         "Momentum_Scores": "month_date",
+        "Composite_Scores": "month_date",
     }
     _skip_freshness = {"Symbol_Universe", "Sector_Index", "SCORE_CALC", "Norgate", "symbol_tracking"}
 
@@ -363,8 +367,9 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
 
     us_tables = [
         "PROD_EODHD.main.PROD_EOD_survivorship",
-        "PROD_EODHD.main.PROD_OBQ_Momentum_Scores",
     ]
+    # Note: PROD_OBQ_Momentum_Scores intentionally stores bare symbols (AAPL not AAPL.US)
+    # because the momentum SQL strips .US when computing from price data.
     for tbl in us_tables:
         try:
             row = conn.execute(f"""
@@ -405,8 +410,8 @@ def _check_symbol_format(conn: duckdb.DuckDBPyConnection) -> CheckResult:
 
 def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult:
     """
-    Compare count of unique symbols in EOD prices vs OBQ Scores.
-    Low coverage is not blocking but important to surface.
+    Compare scored symbols vs investable universe (top 3000 by market cap).
+    Scores are intentionally limited to the investable universe, not the full EOD survivorship.
     """
     t0 = time.time()
     try:
@@ -415,49 +420,65 @@ def _check_fundamentals_coverage(conn: duckdb.DuckDBPyConnection) -> CheckResult
         """).fetchone()
         eod_count = eod_row[0] if eod_row else 0
 
-        # Per-score-table symbol counts
+        # Investable universe count (latest recon year)
+        try:
+            univ_row = conn.execute("""
+                SELECT COUNT(DISTINCT symbol) FROM PROD_EODHD.main.PROD_OBQ_Investable_Universe
+                WHERE effective_start = (SELECT MAX(effective_start) FROM PROD_EODHD.main.PROD_OBQ_Investable_Universe)
+            """).fetchone()
+            universe_count = univ_row[0] if univ_row else 3000
+        except Exception:
+            universe_count = 3000  # fallback
+
+        # Per-score-table symbol counts (latest month only)
         score_tables_map = {
             "value": "PROD_EODHD.main.PROD_OBQ_Value_Scores",
             "quality": "PROD_EODHD.main.PROD_OBQ_Quality_Scores",
             "finstr": "PROD_EODHD.main.PROD_OBQ_FinStr_Scores",
             "growth": "PROD_EODHD.main.PROD_OBQ_Growth_Scores",
             "momentum": "PROD_EODHD.main.PROD_OBQ_Momentum_Scores",
+            "composite": "PROD_EODHD.main.PROD_JCN_Composite_Scores",
         }
         score_symbol_counts = {}
         for key, tbl in score_tables_map.items():
             try:
-                r = conn.execute(f"SELECT COUNT(DISTINCT symbol) FROM {tbl}").fetchone()
+                r = conn.execute(f"""
+                    SELECT COUNT(DISTINCT symbol) FROM {tbl}
+                    WHERE month_date = (SELECT MAX(month_date) FROM {tbl})
+                """).fetchone()
                 score_symbol_counts[key] = r[0] if r else 0
             except Exception:
                 score_symbol_counts[key] = 0
 
         scores_count = score_symbol_counts.get("value", 0)
         momentum_count = score_symbol_counts.get("momentum", 0)
+        composite_count = score_symbol_counts.get("composite", 0)
 
         latency = round((time.time() - t0) * 1000, 1)
 
-        coverage_obq = round(scores_count / eod_count * 100, 1) if eod_count > 0 else 0
-        coverage_mom = round(momentum_count / eod_count * 100, 1) if eod_count > 0 else 0
+        # Coverage vs investable universe (not full EOD)
+        coverage_vs_univ = round(scores_count / max(universe_count, 1) * 100, 1)
 
         detail = {
-            "eod_symbols": eod_count,
-            "obq_scores_symbols": scores_count,
-            "momentum_scores_symbols": momentum_count,
-            "obq_coverage_pct": coverage_obq,
-            "momentum_coverage_pct": coverage_mom,
+            "eod_symbols_total": eod_count,
+            "investable_universe": universe_count,
+            "latest_month_scored": scores_count,
+            "momentum_scored": momentum_count,
+            "composite_scored": composite_count,
+            "coverage_vs_universe_pct": coverage_vs_univ,
             "per_score": score_symbol_counts,
         }
 
-        if coverage_obq < 50:
+        if coverage_vs_univ < 80:
             return CheckResult(
                 status="WARN",
-                message=f"Low OBQ score coverage: {coverage_obq}% ({scores_count}/{eod_count} symbols)",
+                message=f"Score coverage {coverage_vs_univ}% of investable universe ({scores_count}/{universe_count})",
                 detail=detail,
                 latency_ms=latency,
             )
         return CheckResult(
             status="PASS",
-            message=f"Fundamentals coverage: OBQ {coverage_obq}%, Momentum {coverage_mom}%",
+            message=f"Score coverage: {coverage_vs_univ}% of investable universe ({scores_count}/{universe_count}), {composite_count} composites",
             detail=detail,
             latency_ms=latency,
         )

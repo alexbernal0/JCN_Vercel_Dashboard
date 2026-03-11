@@ -12,7 +12,7 @@ Serverless portfolio dashboard:
 
 - **Frontend:** Next.js 15, React 19, Tremor, ECharts, Tailwind
 - **Backend:** FastAPI (Python), Vercel serverless
-- **Database:** MotherDuck (DuckDB) – PROD_EODHD + OBQ/Momentum score tables
+- **Database:** MotherDuck (DuckDB) – PROD_EODHD + 5 factor scores + JCN composite blends (investable universe)
 - **Caching:** SWR (frontend), 24hr MotherDuck cache in API
 
 ---
@@ -42,7 +42,7 @@ JCN_Vercel_Dashboard/
 │   │   └── (dashboard)/           # /dashboard, /persistent-value, etc.
 │   ├── components/dashboard/     # Tables, charts, inputs
 │   └── lib/swr-provider.tsx       # SWR config
-├── scripts/                       # DB helpers (describe scores, check fundamentals)
+├── scripts/                       # Score recalculation + DB helpers
 ├── docs/                          # Procedures, DB, deploy
 ├── CHECKPOINT_v1.3.0.md           # Rollback snapshot (data-sync)
 ├── CHECKPOINTS.md
@@ -62,6 +62,7 @@ JCN_Vercel_Dashboard/
 ## 🔧 Configuration Files
 
 ### 1. `vercel.json`
+
 ```json
 {
   "functions": {
@@ -75,6 +76,7 @@ JCN_Vercel_Dashboard/
 **Purpose:** Tells Vercel to treat `/api` folder as Python serverless functions.
 
 ### 2. `next.config.mjs`
+
 ```javascript
 {
   rewrites: async () => {
@@ -98,19 +100,19 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 
 **Endpoints:**
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/` | API info + endpoint list |
-| GET | `/api/sync/stage0` | Health and Inventory (8 checks) |
-| GET | `/api/sync/stage1` | EODHD Ingest (bulk to DEV) |
-| GET | `/api/sync/stage2` | Validate and Promote (DEV to PROD) |
-| GET | `/api/sync/stage3` | Audit and Report (integrity + self-healing) |
-| GET | `/api/health` | Health; MOTHERDUCK_TOKEN check |
-| POST | `/api/portfolio/performance` | Performance (body: `holdings`) |
-| POST | `/api/portfolio/allocation` | Allocation (body: `portfolio`) |
-| POST | `/api/portfolio/fundamentals` | 5 scores (body: `symbols`) |
-| POST | `/api/benchmarks` | SPY comparison (body: `holdings`) |
-| POST | `/api/stock/prices` | Historical prices (body: `symbols`) |
+| Method | Path                          | Purpose                                     |
+| ------ | ----------------------------- | ------------------------------------------- |
+| GET    | `/`                           | API info + endpoint list                    |
+| GET    | `/api/sync/stage0`            | Health and Inventory (8 checks)             |
+| GET    | `/api/sync/stage1`            | EODHD Ingest (bulk to DEV)                  |
+| GET    | `/api/sync/stage2`            | Validate and Promote (DEV to PROD)          |
+| GET    | `/api/sync/stage3`            | Audit and Report (integrity + self-healing) |
+| GET    | `/api/health`                 | Health; MOTHERDUCK_TOKEN check              |
+| POST   | `/api/portfolio/performance`  | Performance (body: `holdings`)              |
+| POST   | `/api/portfolio/allocation`   | Allocation (body: `portfolio`)              |
+| POST   | `/api/portfolio/fundamentals` | 5 scores (body: `symbols`)                  |
+| POST   | `/api/benchmarks`             | SPY comparison (body: `holdings`)           |
+| POST   | `/api/stock/prices`           | Historical prices (body: `symbols`)         |
 
 ---
 
@@ -119,7 +121,7 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 - **GET /api/health** – Returns `{ status, motherduck_configured, timestamp }`.
 - **POST /api/portfolio/performance** – Body: `{ holdings: [{ symbol, cost_basis, shares }] }`. Returns performance metrics from MotherDuck (24hr cache).
 - **POST /api/portfolio/allocation** – Same holdings shape. Returns company/category/sector/industry allocation for pie charts.
-- **POST /api/portfolio/fundamentals** – Body: `{ symbols: string[] }`. Returns `{ data: [{ symbol, value, growth, financial_strength, quality, momentum }], score_columns }` from PROD_OBQ_Scores + PROD_OBQ_Momentum_Scores.
+- **POST /api/portfolio/fundamentals** – Body: `{ symbols: string[] }`. Returns `{ data: [{ symbol, value, growth, financial_strength, quality, momentum }], score_columns }` from 5 factor score tables (Value, Quality, Growth, FinStr, Momentum). Scores computed against investable universe (top 3000 by market cap).
 - **POST /api/benchmarks** – Body: holdings. Returns portfolio vs SPY daily change and alpha.
 - **POST /api/stock/prices** – Body: `{ symbols: string[] }`. Returns historical daily close for chart (MotherDuck PROD_EOD_survivorship).
 
@@ -132,6 +134,7 @@ All routes live in `api/index.py`. Vercel mounts the function at `/api/*`.
 Go to: https://vercel.com/obsidianquantitative/jcn-tremor/settings/environment-variables
 
 **Add:**
+
 ```
 Name: MOTHERDUCK_TOKEN
 Value: <your_motherduck_token>
@@ -139,6 +142,7 @@ Environments: Production, Preview, Development
 ```
 
 **How to get MotherDuck token:**
+
 1. Go to https://motherduck.com
 2. Sign in to your account
 3. Go to Settings → API Tokens
@@ -197,6 +201,7 @@ Tremor Charts Display
 ## 📦 Dependencies
 
 ### Python (`requirements.txt`)
+
 ```
 fastapi==0.115.0
 uvicorn==0.32.0
@@ -212,6 +217,7 @@ vercel-sdk==0.0.8
 ```
 
 ### Node.js (`package.json`)
+
 - Next.js 15
 - React 19
 - Tremor components
@@ -224,23 +230,27 @@ vercel-sdk==0.0.8
 ### Local Development
 
 1. **Install dependencies:**
+
 ```bash
 pnpm install
 pip3 install -r requirements.txt
 ```
 
 2. **Run FastAPI locally:**
+
 ```bash
 cd api
 uvicorn index:app --reload --port 8000
 ```
 
 3. **Run Next.js:**
+
 ```bash
 pnpm dev
 ```
 
 4. **Test endpoints:**
+
 ```bash
 curl http://localhost:3000/api/health
 curl http://localhost:3000/api/test
@@ -259,9 +269,11 @@ curl https://jcn-tremor.vercel.app/api/db-test
 ## 🔄 Deployment
 
 ### Automatic (GitHub)
+
 Push to `main` branch → Vercel auto-deploys
 
 ### Manual (CLI)
+
 ```bash
 vercel --prod
 ```
@@ -271,23 +283,29 @@ vercel --prod
 ## 📊 Next Steps
 
 ### 1. Add MotherDuck Token
+
 - Go to Vercel environment variables
 - Add `MOTHERDUCK_TOKEN`
 - Redeploy
 
 ### 2. Build Individual Pages
+
 Each page will:
+
 - Fetch data from Python API
 - Display results in Tremor charts/tables
 - Allow user inputs (filters, date ranges)
 
 **Example pages:**
+
 - `/overview` - Portfolio summary
 - `/screener` - Stock scanner with filters
 - `/details` - Individual stock analysis
 
 ### 3. Add More API Endpoints
+
 Examples:
+
 - `/api/screen` - Screen stocks by criteria
 - `/api/stock/{symbol}` - Get stock details
 - `/api/compare` - Compare multiple stocks
@@ -317,6 +335,7 @@ Vercel's modern Python runtime (2023+) automatically detects the `app` variable 
 ### Route Naming
 
 FastAPI routes MUST include `/api` prefix:
+
 ```python
 @app.get("/api/health")  # ✅ Correct
 @app.get("/health")      # ❌ Won't work
@@ -341,6 +360,7 @@ FastAPI routes MUST include `/api` prefix:
 ## 📞 Support
 
 For issues or questions:
+
 1. Check Vercel deployment logs
 2. Test endpoints individually
 3. Verify environment variables

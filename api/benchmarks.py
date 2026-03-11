@@ -72,27 +72,104 @@ def save_benchmarks_cache(data: Dict[str, Any]):
         pass
 
 
+def _fetch_live_price(symbol: str, api_key: str) -> dict:
+    """Fetch real-time price + previousClose from EODHD for a single symbol.
+    Returns {'close': float, 'previousClose': float} or empty dict on failure."""
+    import urllib.request
+
+    url = f"https://eodhd.com/api/real-time/{symbol}.US?api_token={api_key}&fmt=json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "JCN-Dashboard/2.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        return {
+            'close': float(data['close']) if data.get('close') is not None else None,
+            'previousClose': float(data['previousClose']) if data.get('previousClose') is not None else None,
+        }
+    except Exception:
+        return {}
+
+
 def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
     """
-    Fetch ALL benchmark data in a single MotherDuck connection.
-    
+    Fetch ALL benchmark data using live EODHD prices (current) vs previousClose.
+    Falls back to MotherDuck EOD data if EODHD_API_KEY is not set.
+
     Returns dict with:
-    - portfolio_daily_change: weighted average daily change
-    - benchmark_daily_change: SPY daily change
+    - portfolio_daily_change: weighted average daily change (live price vs prev close)
+    - benchmark_daily_change: SPY daily change (live vs prev close)
     - daily_alpha: portfolio - benchmark
-    - benchmark_date: date of latest SPY data
+    - benchmark_date: "live" or date of DB data
     """
+    api_key = os.getenv('EODHD_API_KEY', '')
+
+    # ------- Primary path: EODHD live prices -------
+    if api_key:
+        all_symbols = list(set([h.symbol for h in holdings] + ['SPY']))
+
+        # Fetch all live prices concurrently via ThreadPool
+        from concurrent.futures import ThreadPoolExecutor
+        prices = {}
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(_fetch_live_price, sym, api_key): sym for sym in all_symbols}
+            for future in futures:
+                sym = futures[future]
+                try:
+                    prices[sym] = future.result(timeout=15)
+                except Exception:
+                    prices[sym] = {}
+
+        # SPY benchmark
+        spy = prices.get('SPY', {})
+        spy_current = spy.get('close', 0) or 0
+        spy_previous = spy.get('previousClose', 0) or 0
+        benchmark_daily_change = 0.0
+        if spy_previous and spy_previous != 0:
+            benchmark_daily_change = round(((spy_current - spy_previous) / spy_previous) * 100, 4)
+
+        # Portfolio weighted daily change
+        total_value = 0.0
+        weighted_change = 0.0
+
+        for holding in holdings:
+            sym_prices = prices.get(holding.symbol, {})
+            current = sym_prices.get('close')
+            previous = sym_prices.get('previousClose')
+
+            if current and current > 0:
+                position_value = current * holding.shares
+                total_value += position_value
+
+                if previous and previous > 0:
+                    daily_change = ((current - previous) / previous) * 100
+                else:
+                    daily_change = 0.0
+
+                weighted_change += position_value * daily_change
+
+        portfolio_daily_change = round(weighted_change / total_value, 4) if total_value > 0 else 0.0
+        daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 4)
+
+        return {
+            'portfolio_daily_change': portfolio_daily_change,
+            'benchmark_daily_change': benchmark_daily_change,
+            'daily_alpha': daily_alpha,
+            'benchmark_symbol': 'SPY',
+            'benchmark_date': 'live',
+        }
+
+    # ------- Fallback: MotherDuck EOD (last 2 trading days) -------
     token = os.getenv('MOTHERDUCK_TOKEN')
     if not token:
-        raise ValueError("MOTHERDUCK_TOKEN not found in environment")
-    
+        raise ValueError("Neither EODHD_API_KEY nor MOTHERDUCK_TOKEN found in environment")
+
     conn = duckdb.connect(f'md:?motherduck_token={token}')
-    
+
     try:
         # Build list of ALL symbols we need (holdings + SPY)
         all_symbols = list(set([f"{h.symbol}.US" for h in holdings] + ["SPY.US"]))
         symbols_str = "', '".join(all_symbols)
-        
+
         # Single query: get last 2 trading days for ALL symbols from BOTH tables
         query = f"""
         WITH combined AS (
@@ -114,9 +191,9 @@ def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
         WHERE rn <= 2
         ORDER BY symbol, rn
         """
-        
+
         rows = conn.execute(query).fetchall()
-        
+
         # Build lookup: symbol -> {current_price, previous_price, date}
         prices = {}
         for symbol, dt, adj_close, rn in rows:
@@ -127,7 +204,7 @@ def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
                 prices[symbol]['date'] = str(dt)
             elif rn == 2:
                 prices[symbol]['previous'] = adj_close
-        
+
         # Calculate SPY benchmark daily change
         spy = prices.get('SPY.US', {})
         spy_current = spy.get('current', 0)
@@ -135,32 +212,32 @@ def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
         benchmark_daily_change = 0.0
         benchmark_date = spy.get('date', 'N/A')
         if spy_previous and spy_previous != 0:
-            benchmark_daily_change = round(((spy_current - spy_previous) / spy_previous) * 100, 2)
-        
+            benchmark_daily_change = round(((spy_current - spy_previous) / spy_previous) * 100, 4)
+
         # Calculate portfolio weighted daily change
         total_value = 0.0
         weighted_change = 0.0
-        
+
         for holding in holdings:
             md_symbol = f"{holding.symbol}.US"
             sym_prices = prices.get(md_symbol, {})
             current = sym_prices.get('current')
             previous = sym_prices.get('previous')
-            
+
             if current:
                 position_value = current * holding.shares
                 total_value += position_value
-                
+
                 if previous and previous != 0:
                     daily_change = ((current - previous) / previous) * 100
                 else:
                     daily_change = 0.0
-                
+
                 weighted_change += position_value * daily_change
-        
-        portfolio_daily_change = round(weighted_change / total_value, 2) if total_value > 0 else 0.0
-        daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 2)
-        
+
+        portfolio_daily_change = round(weighted_change / total_value, 4) if total_value > 0 else 0.0
+        daily_alpha = round(portfolio_daily_change - benchmark_daily_change, 4)
+
         return {
             'portfolio_daily_change': portfolio_daily_change,
             'benchmark_daily_change': benchmark_daily_change,
@@ -168,7 +245,7 @@ def _fetch_benchmarks_batch(holdings: List[HoldingInput]) -> Dict[str, Any]:
             'benchmark_symbol': 'SPY',
             'benchmark_date': benchmark_date,
         }
-    
+
     finally:
         conn.close()
 

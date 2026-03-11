@@ -50,6 +50,7 @@ class PortfolioPerformanceResponse(BaseModel):
     total_portfolio_value: float
     last_updated: str
     cache_info: Dict[str, Any]
+    missing_tickers: List[str] = Field(default_factory=list, description="Tickers with no DB data (shown with cost basis fallback)")
 
 
 def calculate_portfolio_performance(
@@ -83,8 +84,10 @@ def calculate_portfolio_performance(
             logger.info("MotherDuck cache loaded, using cached data")
 
     # Step 2: Calculate metrics for each holding
+    # NEVER silently drop holdings — always return ALL requested tickers
     portfolio_data = []
     total_value = 0.0
+    missing_tickers = []
 
     for holding in request.holdings:
         ticker = holding.symbol
@@ -95,13 +98,50 @@ def calculate_portfolio_performance(
         ticker_data = cache_mgr.get_motherduck_data(ticker)
 
         if not ticker_data:
-            logger.warning(f"No MotherDuck data for {ticker}, skipping")
+            logger.warning(f"No MotherDuck data for {ticker} — including with cost basis only")
+            missing_tickers.append(ticker)
+            # Return the holding with cost basis info, zero market data
+            portfolio_data.append({
+                "security": ticker,
+                "ticker": ticker,
+                "cost_basis": cost_basis,
+                "current_price": cost_basis,  # Use cost basis as fallback price
+                "port_pct": 0.0,
+                "daily_change_pct": 0.0,
+                "ytd_pct": 0.0,
+                "yoy_pct": 0.0,
+                "port_gain_pct": 0.0,
+                "pct_below_52wk_high": 0.0,
+                "chan_range_pct": 0.0,
+                "sector": "No Data",
+                "industry": "No Data",
+                "position_value": cost_basis * shares,
+            })
+            total_value += cost_basis * shares
             continue
 
         # Current price = latest adjusted_close from snapshot (PD-05)
         current_price = ticker_data.get("latest_eod_close")
         if not current_price:
-            logger.warning(f"No current price data for {ticker}, skipping")
+            logger.warning(f"No current price for {ticker} — using cost basis as fallback")
+            missing_tickers.append(ticker)
+            portfolio_data.append({
+                "security": ticker,
+                "ticker": ticker,
+                "cost_basis": cost_basis,
+                "current_price": cost_basis,
+                "port_pct": 0.0,
+                "daily_change_pct": 0.0,
+                "ytd_pct": 0.0,
+                "yoy_pct": 0.0,
+                "port_gain_pct": 0.0,
+                "pct_below_52wk_high": 0.0,
+                "chan_range_pct": 0.0,
+                "sector": ticker_data.get("sector") or "No Data",
+                "industry": ticker_data.get("industry") or "No Data",
+                "position_value": cost_basis * shares,
+            })
+            total_value += cost_basis * shares
             continue
 
         # Calculate position value
@@ -161,6 +201,9 @@ def calculate_portfolio_performance(
             "position_value": position_value
         })
 
+    if missing_tickers:
+        logger.warning(f"Missing DB data for {len(missing_tickers)} tickers: {missing_tickers}")
+
     # Step 3: Calculate portfolio percentages
     for item in portfolio_data:
         item["port_pct"] = round((item["position_value"] / total_value * 100), 2) if total_value > 0 else 0
@@ -171,5 +214,6 @@ def calculate_portfolio_performance(
         data=[PortfolioPerformanceData(**item) for item in portfolio_data],
         total_portfolio_value=total_value,
         last_updated=datetime.now().isoformat(),
-        cache_info=cache_mgr.get_cache_info()
+        cache_info=cache_mgr.get_cache_info(),
+        missing_tickers=missing_tickers,
     )

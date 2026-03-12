@@ -101,6 +101,9 @@ from .screener import (
     run_screener,
 )
 
+# Import BPBP (Bull Power / Bear Pressure) module
+from .bpbp import get_bpbp_indicator
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -146,6 +149,7 @@ async def root():
             "/api/stock/universe-check": "GET - Check if symbol is in investable universe",
             "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)",
             "/api/screener": "POST - Stock screener with preset filters (FinViz-style)",
+            "/api/bpbp": "GET - BPBP indicator, backtest, and metrics (period: 1y/3y/5y/10y/all)",
             "/api/sync/cron": "GET - Cron-triggered full pipeline (secured with CRON_SECRET)",
             "/api/sync/history": "GET - Recent sync run history"
         }
@@ -418,6 +422,22 @@ async def screener_endpoint(request: ScreenerRequest):
     except Exception as e:
         logger.error(f"Error in screener: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Screener failed: {str(e)}")
+
+
+@app.get("/api/bpbp")
+async def bpbp_endpoint(period: str = Query("5y", description="Period: 1y, 3y, 5y, 10y, all")):
+    """
+    Get BPBP (Bull Power / Bear Pressure) indicator, backtest, and metrics.
+    Computes from survivorship-bias-free universe using volume-weighted breadth.
+    """
+    try:
+        logger.info(f"BPBP request: period={period}")
+        result = get_bpbp_indicator(period)
+        logger.info(f"BPBP result: {result['metrics']['weeks']} weeks, compute={result['compute_ms']}ms")
+        return result
+    except Exception as e:
+        logger.error(f"Error in BPBP: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"BPBP computation failed: {str(e)}")
 
 
 @app.get("/api/sync/stage0")

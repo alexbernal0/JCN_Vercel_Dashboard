@@ -223,6 +223,8 @@ def _ingest_one_day(conn: duckdb.DuckDBPyConnection, api_key: str,
             low_p = float(record.get("low") or 0)
             close_p = float(record.get("close") or 0)
             adj_close = float(record.get("adjusted_close") or 0)
+            volume_raw = record.get("volume")
+            volume = float(volume_raw) if volume_raw is not None else None
         except (ValueError, TypeError):
             batch["validation"]["nulls_blocked"] += 1
             continue
@@ -232,7 +234,7 @@ def _ingest_one_day(conn: duckdb.DuckDBPyConnection, api_key: str,
             batch["validation"]["price_lte_0"] += 1
 
         # Route to ETF or stock table
-        row = (symbol, date_str, open_p, high_p, low_p, close_p, adj_close)
+        row = (symbol, date_str, open_p, high_p, low_p, close_p, adj_close, volume)
         if symbol in etf_symbols:
             etf_rows.append(row + (None,))  # isin column
         else:
@@ -243,8 +245,8 @@ def _ingest_one_day(conn: duckdb.DuckDBPyConnection, api_key: str,
         try:
             conn.executemany(
                 """INSERT INTO DEV_EODHD_DATA.main.DEV_EOD_survivorship
-                   (symbol, date, open, high, low, close, adjusted_close)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (symbol, date, open, high, low, close, adjusted_close, volume)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 stock_rows,
             )
             batch["stocks_inserted"] = len(stock_rows)
@@ -257,8 +259,8 @@ def _ingest_one_day(conn: duckdb.DuckDBPyConnection, api_key: str,
         try:
             conn.executemany(
                 """INSERT INTO DEV_EODHD_DATA.main.DEV_EOD_ETFs
-                   (symbol, date, open, high, low, close, adjusted_close, isin)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (symbol, date, open, high, low, close, adjusted_close, volume, isin)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 etf_rows,
             )
             batch["etfs_inserted"] = len(etf_rows)

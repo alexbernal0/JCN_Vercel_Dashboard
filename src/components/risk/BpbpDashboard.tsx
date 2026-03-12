@@ -14,7 +14,6 @@ interface BpbpData {
     selling_pressure: (number | null)[]
     bpsp_ratio: (number | null)[]
     signal: number[]
-    n_stocks: number[]
   }
   spy: {
     dates: string[]
@@ -46,8 +45,7 @@ interface BpbpData {
     selling_pressure: number | null
     bpsp_ratio: number | null
     signal: number
-    n_stocks: number
-    spy_close: number | null
+    spx_close: number | null
   }
   period: string
   compute_ms: number
@@ -64,7 +62,7 @@ interface MetricsBlock {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Constants & Helpers
 // ---------------------------------------------------------------------------
 
 const PERIODS = [
@@ -77,8 +75,7 @@ const PERIODS = [
 
 function fmt(v: number | null | undefined, pct = true, dec = 2): string {
   if (v == null) return "—"
-  const s = pct ? (v >= 0 ? "+" : "") + v.toFixed(dec) + "%" : v.toFixed(dec)
-  return s
+  return pct ? (v >= 0 ? "+" : "") + v.toFixed(dec) + "%" : v.toFixed(dec)
 }
 
 function fmtDollar(v: number | null | undefined): string {
@@ -88,254 +85,326 @@ function fmtDollar(v: number | null | undefined): string {
 
 function pctColor(v: number | null | undefined): string {
   if (v == null) return "text-gray-400"
-  return v >= 0 ? "text-green-500" : "text-red-500"
+  return v >= 0 ? "text-green-600" : "text-red-600"
+}
+
+// ---------------------------------------------------------------------------
+// Shared white-theme chart pieces
+// ---------------------------------------------------------------------------
+
+const WHITE_TOOLTIP = {
+  trigger: "axis" as const,
+  backgroundColor: "#ffffff",
+  borderColor: "#e5e7eb",
+  borderWidth: 1,
+  textStyle: { color: "#374151", fontSize: 11, fontFamily: "monospace" },
+  axisPointer: { lineStyle: { color: "#9ca3af" } },
+}
+
+function whiteXAxis(dates: string[]) {
+  return {
+    type: "category" as const,
+    data: dates,
+    axisLine: { lineStyle: { color: "#9ca3af" } },
+    axisTick: { lineStyle: { color: "#9ca3af" } },
+    axisLabel: { color: "#374151", fontSize: 10 },
+    splitLine: { show: false },
+  }
+}
+
+const WHITE_SPLITLINE = {
+  lineStyle: { color: "#e5e7eb", type: "dashed" as const },
 }
 
 // ---------------------------------------------------------------------------
 // Chart option builders
 // ---------------------------------------------------------------------------
 
-const CHART_COMMON = {
-  backgroundColor: "transparent",
-  textStyle: { color: "#94a3b8", fontFamily: "monospace", fontSize: 11 },
-  grid: { left: 60, right: 16, top: 32, bottom: 32, containLabel: false },
-  tooltip: {
-    trigger: "axis" as const,
-    backgroundColor: "#1e293b",
-    borderColor: "#334155",
-    textStyle: { color: "#e2e8f0", fontSize: 11 },
-  },
-}
-
-function spyChartOption(data: BpbpData["spy"]) {
+function spxCandlestickOption(spy: BpbpData["spy"]) {
+  // ECharts candlestick format per point: [open, close, low, high]
+  const candleData = spy.dates.map((_, i) => [
+    spy.open[i] ?? 0,
+    spy.close[i] ?? 0,
+    spy.low[i] ?? 0,
+    spy.high[i] ?? 0,
+  ])
   return {
-    ...CHART_COMMON,
-    grid: { left: 64, right: 16, top: 16, bottom: 32 },
-    xAxis: {
-      type: "category",
-      data: data.dates,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#64748b", fontSize: 10 },
-    },
+    backgroundColor: "#ffffff",
+    tooltip: WHITE_TOOLTIP,
+    grid: { left: 72, right: 20, top: 12, bottom: 36 },
+    xAxis: whiteXAxis(spy.dates),
     yAxis: {
-      type: "value",
-      axisLabel: { color: "#64748b", fontSize: 10, formatter: "${value}" },
-      splitLine: { lineStyle: { color: "#1e293b" } },
+      type: "value" as const,
+      axisLabel: {
+        color: "#374151",
+        fontSize: 10,
+        formatter: (v: number) => `$${v.toLocaleString()}`,
+      },
+      axisLine: { lineStyle: { color: "#9ca3af" } },
+      splitLine: WHITE_SPLITLINE,
     },
     series: [
       {
-        type: "line",
-        data: data.close,
-        lineStyle: { color: "#64748b", width: 1.5 },
-        itemStyle: { color: "#64748b" },
-        symbol: "none",
-        areaStyle: {
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: "rgba(100,116,139,0.15)" },
-              { offset: 1, color: "rgba(100,116,139,0)" },
-            ],
-          },
+        type: "candlestick",
+        data: candleData,
+        itemStyle: {
+          color: "#16a34a",
+          color0: "#dc2626",
+          borderColor: "#16a34a",
+          borderColor0: "#dc2626",
         },
+        barMaxWidth: 8,
       },
     ],
   }
 }
 
-function indicatorChartOption(data: BpbpData["indicator"]) {
-  const bp = data.buying_power
-  const sp = data.selling_pressure
+function indicatorChartOption(ind: BpbpData["indicator"]) {
+  const bp = ind.buying_power
+  const sp = ind.selling_pressure
+  const n = ind.dates.length
+
+  // Fill-between: base fills 0→min(BP,SP) in white; green fills Δ when BP≥SP; red fills Δ when SP>BP
+  const baseData: (number | null)[] = []
+  const greenBand: (number | null)[] = []
+  const redBand: (number | null)[] = []
+
+  for (let i = 0; i < n; i++) {
+    const bv = bp[i]
+    const sv = sp[i]
+    if (bv == null || sv == null) {
+      baseData.push(null)
+      greenBand.push(null)
+      redBand.push(null)
+    } else {
+      baseData.push(Math.min(bv, sv))
+      greenBand.push(bv >= sv ? bv - sv : 0)
+      redBand.push(bv < sv ? sv - bv : 0)
+    }
+  }
+
   return {
-    ...CHART_COMMON,
-    grid: { left: 56, right: 16, top: 32, bottom: 32 },
+    backgroundColor: "#ffffff",
+    tooltip: WHITE_TOOLTIP,
     legend: {
-      data: ["Bull Power (21-wk MA)", "Bear Pressure (21-wk MA)"],
-      top: 0,
-      textStyle: { color: "#94a3b8", fontSize: 10 },
+      data: ["Buying Power (21-wk MA)", "Selling Pressure (21-wk MA)"],
+      top: 4,
+      left: "left" as const,
+      textStyle: { color: "#374151", fontSize: 10 },
+      icon: "circle",
+      itemWidth: 8,
+      itemHeight: 8,
     },
-    xAxis: {
-      type: "category",
-      data: data.dates,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#64748b", fontSize: 10 },
-    },
+    grid: { left: 60, right: 20, top: 36, bottom: 36 },
+    xAxis: whiteXAxis(ind.dates),
     yAxis: {
-      type: "value",
+      type: "value" as const,
       min: 0.35,
       max: 0.65,
       axisLabel: {
-        color: "#64748b",
+        color: "#374151",
         fontSize: 10,
         formatter: (v: number) => v.toFixed(3),
       },
-      splitLine: { lineStyle: { color: "#1e293b" } },
+      axisLine: { lineStyle: { color: "#9ca3af" } },
+      splitLine: WHITE_SPLITLINE,
     },
     series: [
+      // Invisible base — pushes green/red fills up from min(BP,SP)
       {
-        name: "Bull Power (21-wk MA)",
-        type: "line",
+        type: "line" as const,
+        data: baseData,
+        stack: "fillBand",
+        symbol: "none",
+        lineStyle: { width: 0, opacity: 0 },
+        areaStyle: { color: "#ffffff" },
+        silent: true,
+        tooltip: { show: false },
+      },
+      // Green fill where BP ≥ SP
+      {
+        type: "line" as const,
+        data: greenBand,
+        stack: "fillBand",
+        symbol: "none",
+        lineStyle: { width: 0, opacity: 0 },
+        areaStyle: { color: "rgba(22,163,74,0.25)" },
+        silent: true,
+        tooltip: { show: false },
+      },
+      // Red fill where SP > BP
+      {
+        type: "line" as const,
+        data: redBand,
+        stack: "fillBand",
+        symbol: "none",
+        lineStyle: { width: 0, opacity: 0 },
+        areaStyle: { color: "rgba(220,38,38,0.25)" },
+        silent: true,
+        tooltip: { show: false },
+      },
+      // Buying Power line (visible)
+      {
+        name: "Buying Power (21-wk MA)",
+        type: "line" as const,
         data: bp,
-        lineStyle: { color: "#22c55e", width: 2 },
-        itemStyle: { color: "#22c55e" },
+        lineStyle: { color: "#16a34a", width: 2.5 },
+        itemStyle: { color: "#16a34a" },
         symbol: "none",
-        areaStyle: { color: "rgba(34,197,94,0.08)" },
       },
+      // Selling Pressure line (visible)
       {
-        name: "Bear Pressure (21-wk MA)",
-        type: "line",
+        name: "Selling Pressure (21-wk MA)",
+        type: "line" as const,
         data: sp,
-        lineStyle: { color: "#ef4444", width: 2 },
-        itemStyle: { color: "#ef4444" },
+        lineStyle: { color: "#dc2626", width: 2.5 },
+        itemStyle: { color: "#dc2626" },
         symbol: "none",
-        areaStyle: { color: "rgba(239,68,68,0.08)" },
       },
+      // Neutral 0.5 dashed line
       {
-        name: "Neutral",
-        type: "line",
-        data: data.dates.map(() => 0.5),
-        lineStyle: { color: "#475569", width: 1, type: "dashed" },
+        type: "line" as const,
+        data: ind.dates.map(() => 0.5),
+        lineStyle: { color: "#9ca3af", width: 1.2, type: "dashed" as const },
         symbol: "none",
         silent: true,
+        tooltip: { show: false },
       },
     ],
-    visualMap: {
-      show: false,
-      dimension: 0,
-      pieces: bp.map((bpVal, i) => {
-        const spVal = sp[i]
-        if (bpVal == null || spVal == null)
-          return { gte: i, lt: i + 1, color: "#475569" }
-        return {
-          gte: i,
-          lt: i + 1,
-          color: bpVal >= spVal ? "#22c55e" : "#ef4444",
-        }
-      }),
-    },
   }
 }
 
-function equityChartOption(data: BpbpData["backtest"]) {
+function equityChartOption(bt: BpbpData["backtest"]) {
   return {
-    ...CHART_COMMON,
-    grid: { left: 64, right: 16, top: 32, bottom: 32 },
+    backgroundColor: "#ffffff",
+    tooltip: WHITE_TOOLTIP,
     legend: {
-      data: ["BPBP Strategy", "SPY Benchmark"],
-      top: 0,
-      textStyle: { color: "#94a3b8", fontSize: 10 },
+      data: ["SPX Benchmark", "BPSP Strategy"],
+      top: 4,
+      right: 20,
+      textStyle: { color: "#374151", fontSize: 10 },
+      icon: "circle",
+      itemWidth: 8,
+      itemHeight: 8,
     },
-    xAxis: {
-      type: "category",
-      data: data.dates,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#64748b", fontSize: 10 },
-    },
+    grid: { left: 72, right: 20, top: 36, bottom: 36 },
+    xAxis: whiteXAxis(bt.dates),
     yAxis: {
-      type: "log",
-      axisLabel: { color: "#64748b", fontSize: 10, formatter: "${value}" },
-      splitLine: { lineStyle: { color: "#1e293b" } },
+      type: "log" as const,
+      axisLabel: {
+        color: "#374151",
+        fontSize: 10,
+        formatter: (v: number) => `$${v}`,
+      },
+      axisLine: { lineStyle: { color: "#9ca3af" } },
+      splitLine: WHITE_SPLITLINE,
     },
     series: [
       {
-        name: "BPBP Strategy",
-        type: "line",
-        data: data.strat_equity,
-        lineStyle: { color: "#22c55e", width: 2 },
-        itemStyle: { color: "#22c55e" },
+        name: "SPX Benchmark",
+        type: "line" as const,
+        data: bt.spy_equity,
+        lineStyle: { color: "#2563eb", width: 2 },
+        itemStyle: { color: "#2563eb" },
         symbol: "none",
       },
       {
-        name: "SPY Benchmark",
-        type: "line",
-        data: data.spy_equity,
-        lineStyle: { color: "#64748b", width: 1.5, type: "dotted" },
-        itemStyle: { color: "#64748b" },
+        name: "BPSP Strategy",
+        type: "line" as const,
+        data: bt.strat_equity,
+        lineStyle: { color: "#16a34a", width: 2.5 },
+        itemStyle: { color: "#16a34a" },
         symbol: "none",
       },
     ],
   }
 }
 
-function drawdownChartOption(data: BpbpData["backtest"]) {
+function drawdownChartOption(bt: BpbpData["backtest"]) {
   return {
-    ...CHART_COMMON,
-    grid: { left: 56, right: 16, top: 32, bottom: 32 },
+    backgroundColor: "#ffffff",
+    tooltip: WHITE_TOOLTIP,
     legend: {
-      data: ["Strategy DD", "SPY DD"],
-      top: 0,
-      textStyle: { color: "#94a3b8", fontSize: 10 },
+      data: ["SPX Drawdown", "Strategy Drawdown"],
+      top: 4,
+      left: "left" as const,
+      textStyle: { color: "#374151", fontSize: 10 },
+      icon: "circle",
+      itemWidth: 8,
+      itemHeight: 8,
     },
-    xAxis: {
-      type: "category",
-      data: data.dates,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#64748b", fontSize: 10 },
-    },
+    grid: { left: 60, right: 20, top: 36, bottom: 36 },
+    xAxis: whiteXAxis(bt.dates),
     yAxis: {
-      type: "value",
-      axisLabel: { color: "#64748b", fontSize: 10, formatter: "{value}%" },
-      splitLine: { lineStyle: { color: "#1e293b" } },
+      type: "value" as const,
+      axisLabel: {
+        color: "#374151",
+        fontSize: 10,
+        formatter: (v: number) => `${v}%`,
+      },
+      axisLine: { lineStyle: { color: "#9ca3af" } },
+      splitLine: WHITE_SPLITLINE,
     },
     series: [
       {
-        name: "Strategy DD",
-        type: "line",
-        data: data.strat_drawdown,
-        lineStyle: { color: "#22c55e", width: 1.5 },
-        areaStyle: { color: "rgba(34,197,94,0.10)" },
+        name: "SPX Drawdown",
+        type: "line" as const,
+        data: bt.spy_drawdown,
+        lineStyle: { color: "#2563eb", width: 1.5 },
+        itemStyle: { color: "#2563eb" },
         symbol: "none",
+        areaStyle: { color: "rgba(37,99,235,0.3)" },
+        markLine: {
+          silent: true,
+          symbol: ["none", "none"] as [string, string],
+          lineStyle: { color: "#9ca3af", width: 1, type: "solid" as const },
+          label: { show: false },
+          data: [{ yAxis: 0 }],
+        },
       },
       {
-        name: "SPY DD",
-        type: "line",
-        data: data.spy_drawdown,
-        lineStyle: { color: "#64748b", width: 1, type: "dotted" },
-        areaStyle: { color: "rgba(100,116,139,0.08)" },
+        name: "Strategy Drawdown",
+        type: "line" as const,
+        data: bt.strat_drawdown,
+        lineStyle: { color: "#16a34a", width: 1.5 },
+        itemStyle: { color: "#16a34a" },
         symbol: "none",
+        areaStyle: { color: "rgba(22,163,74,0.5)" },
       },
     ],
   }
 }
 
-function signalChartOption(data: BpbpData["backtest"]) {
-  const inMarket = data.signal.map((s) => (s === 1 ? 1 : null))
-  const inCash = data.signal.map((s) => (s === 0 ? 1 : null))
+function signalChartOption(bt: BpbpData["backtest"]) {
   return {
-    ...CHART_COMMON,
-    grid: { left: 40, right: 16, top: 28, bottom: 28 },
-    legend: {
-      data: ["In Market (BP > SP)", "In Cash (SP ≥ BP)"],
-      top: 0,
-      textStyle: { color: "#94a3b8", fontSize: 9 },
+    backgroundColor: "#ffffff",
+    tooltip: WHITE_TOOLTIP,
+    grid: { left: 60, right: 20, top: 16, bottom: 36 },
+    xAxis: whiteXAxis(bt.dates),
+    yAxis: {
+      type: "value" as const,
+      min: 0,
+      max: 1,
+      interval: 1,
+      axisLabel: {
+        color: "#374151",
+        fontSize: 10,
+        formatter: (v: number) => (v === 0 ? "Cash" : v === 1 ? "SPX" : ""),
+      },
+      axisLine: { lineStyle: { color: "#9ca3af" } },
+      splitLine: { show: false },
     },
-    xAxis: {
-      type: "category",
-      data: data.dates,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#64748b", fontSize: 10 },
-    },
-    yAxis: { type: "value", max: 1.05, show: false },
     series: [
       {
-        name: "In Market (BP > SP)",
-        type: "bar",
-        stack: "signal",
-        data: inMarket,
-        itemStyle: { color: "rgba(34,197,94,0.5)" },
-        barWidth: "90%",
-      },
-      {
-        name: "In Cash (SP ≥ BP)",
-        type: "bar",
-        stack: "signal",
-        data: inCash,
-        itemStyle: { color: "rgba(239,68,68,0.35)" },
-        barWidth: "90%",
+        type: "bar" as const,
+        barWidth: "100%",
+        barCategoryGap: "0%",
+        data: bt.signal.map((s) => ({
+          value: 1,
+          itemStyle: {
+            color: s === 1 ? "rgba(22,163,74,0.4)" : "rgba(220,38,38,0.3)",
+          },
+        })),
       },
     ],
   }
@@ -371,8 +440,10 @@ export default function BpbpDashboard() {
     fetchData(period)
   }, [period, fetchData])
 
-  // Memoize chart options
-  const spyOpt = useMemo(() => (data ? spyChartOption(data.spy) : null), [data])
+  const spxOpt = useMemo(
+    () => (data ? spxCandlestickOption(data.spy) : null),
+    [data],
+  )
   const indOpt = useMemo(
     () => (data ? indicatorChartOption(data.indicator) : null),
     [data],
@@ -390,13 +461,16 @@ export default function BpbpDashboard() {
     [data],
   )
 
+  // ---------------------------------------------------------------------------
+  // Loading
+  // ---------------------------------------------------------------------------
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center">
           <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-b-2 border-green-500" />
-          <p className="text-sm text-gray-400">Computing BPBP indicator...</p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="text-sm text-gray-600">Computing BPBP indicator...</p>
+          <p className="mt-1 text-xs text-gray-400">
             Aggregating ~3,000 stocks weekly
           </p>
         </div>
@@ -404,14 +478,17 @@ export default function BpbpDashboard() {
     )
   }
 
+  // ---------------------------------------------------------------------------
+  // Error
+  // ---------------------------------------------------------------------------
   if (error) {
     return (
-      <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-6 text-center">
-        <p className="text-sm font-medium text-red-400">BPBP Error</p>
-        <p className="mt-1 text-xs text-red-300/70">{error}</p>
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+        <p className="text-sm font-medium text-red-600">BPBP Error</p>
+        <p className="mt-1 text-xs text-red-500">{error}</p>
         <button
           onClick={() => fetchData(period)}
-          className="mt-3 rounded bg-red-500/20 px-3 py-1 text-xs text-red-300 hover:bg-red-500/30"
+          className="mt-3 rounded bg-red-100 px-3 py-1 text-xs text-red-600 hover:bg-red-200"
         >
           Retry
         </button>
@@ -428,57 +505,62 @@ export default function BpbpDashboard() {
 
   return (
     <div className="space-y-4">
-      {/* Signal Banner */}
+      {/* ── Signal Banner ── */}
       <div
-        className={`rounded-lg border p-4 ${isBull ? "border-green-500/20 bg-green-500/5" : "border-red-500/20 bg-red-500/5"}`}
+        className={`rounded-lg border p-4 ${
+          isBull ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+        }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span
-              className={`text-2xl font-bold ${isBull ? "text-green-500" : "text-red-500"}`}
+              className={`text-2xl font-bold ${
+                isBull ? "text-green-700" : "text-red-700"
+              }`}
             >
               {isBull ? "▲ BULL POWER" : "▼ BEAR PRESSURE"}
             </span>
             <span
-              className={`text-sm font-medium ${isBull ? "text-green-400" : "text-red-400"}`}
+              className={`text-sm font-medium ${
+                isBull ? "text-green-600" : "text-red-600"
+              }`}
             >
               {isBull ? "BULLISH SIGNAL" : "BEARISH SIGNAL"}
             </span>
           </div>
           <div className="flex gap-4 font-mono text-xs">
-            <span className="text-gray-400">
+            <span className="text-gray-600">
               BP:{" "}
-              <span className="text-green-400">
+              <span className="font-semibold text-green-700">
                 {latest.buying_power?.toFixed(4) ?? "—"}
               </span>
             </span>
-            <span className="text-gray-400">
+            <span className="text-gray-600">
               SP:{" "}
-              <span className="text-red-400">
+              <span className="font-semibold text-red-700">
                 {latest.selling_pressure?.toFixed(4) ?? "—"}
               </span>
             </span>
-            <span className="text-gray-400">
+            <span className="text-gray-600">
               Ratio:{" "}
-              <span className="text-blue-400">
+              <span className="font-semibold text-blue-700">
                 {latest.bpsp_ratio?.toFixed(4) ?? "—"}
               </span>
             </span>
-            <span className="text-gray-400">
-              SPY:{" "}
-              <span className="text-white">
-                ${latest.spy_close?.toLocaleString() ?? "—"}
+            <span className="text-gray-600">
+              SPX:{" "}
+              <span className="font-semibold text-gray-900">
+                ${latest.spx_close?.toLocaleString() ?? "—"}
               </span>
             </span>
           </div>
         </div>
         <p className="mt-1 text-[10px] text-gray-500">
-          {latest.date} · {latest.n_stocks.toLocaleString()} stocks ·{" "}
-          {data.compute_ms}ms
+          {latest.date} · {data.compute_ms}ms
         </p>
       </div>
 
-      {/* Period Selector */}
+      {/* ── Period Selector ── */}
       <div className="flex items-center gap-1">
         {PERIODS.map((p) => (
           <button
@@ -486,8 +568,8 @@ export default function BpbpDashboard() {
             onClick={() => setPeriod(p.key)}
             className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
               period === p.key
-                ? "border border-blue-500/30 bg-blue-500/20 text-blue-400"
-                : "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
             {p.label}
@@ -495,80 +577,151 @@ export default function BpbpDashboard() {
         ))}
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {/* SPY Weekly */}
-        <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
-          <h3 className="mb-2 text-xs font-medium text-gray-400">
-            SPY Weekly Close
-          </h3>
-          {spyOpt && (
-            <ReactECharts option={spyOpt} style={{ height: 220 }} notMerge />
-          )}
-        </div>
-
-        {/* BPBP Indicator */}
-        <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
-          <h3 className="mb-2 text-xs font-medium text-gray-400">
-            Bull Power / Bear Pressure Indicator
-          </h3>
-          {indOpt && (
-            <ReactECharts option={indOpt} style={{ height: 220 }} notMerge />
-          )}
-        </div>
-
-        {/* Equity Curve */}
-        <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
-          <h3 className="mb-2 text-xs font-medium text-gray-400">
-            Equity Curve ($100 start)
-          </h3>
-          {eqOpt && (
-            <ReactECharts option={eqOpt} style={{ height: 220 }} notMerge />
-          )}
-        </div>
-
-        {/* Drawdown */}
-        <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
-          <h3 className="mb-2 text-xs font-medium text-gray-400">Drawdown</h3>
-          {ddOpt && (
-            <ReactECharts option={ddOpt} style={{ height: 220 }} notMerge />
-          )}
-        </div>
-      </div>
-
-      {/* Signal Timeline */}
-      <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
-        <h3 className="mb-2 text-xs font-medium text-gray-400">
-          Signal Timeline
+      {/* ── Plot 1: SPX + Indicator ── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        {/* Top chart: SPX Candlestick */}
+        <h3 className="mb-1 text-sm font-bold text-gray-900">
+          S&amp;P 500 Index (Weekly OHLC)
         </h3>
-        {sigOpt && (
-          <ReactECharts option={sigOpt} style={{ height: 100 }} notMerge />
+        <div className="relative mb-4">
+          {spxOpt && (
+            <ReactECharts option={spxOpt} style={{ height: 350 }} notMerge />
+          )}
+          {/* Stats overlay — top-left of plot area */}
+          <div
+            className="pointer-events-none absolute rounded border border-amber-400/70 bg-amber-50/95 px-2 py-1.5 font-mono text-xs leading-5 text-gray-700 shadow-sm"
+            style={{ left: 76, top: 16 }}
+          >
+            <div>
+              <span className="text-gray-500">Date: </span>
+              {latest.date}
+            </div>
+            <div>
+              <span className="text-gray-500">SPX: </span>
+              <span className="font-semibold">
+                ${latest.spx_close?.toLocaleString() ?? "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">BP: </span>
+              <span className="text-green-700">
+                {latest.buying_power?.toFixed(4) ?? "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">SP: </span>
+              <span className="text-red-700">
+                {latest.selling_pressure?.toFixed(4) ?? "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">Ratio:</span>
+              <span className="text-blue-700">
+                {" "}
+                {latest.bpsp_ratio?.toFixed(4) ?? "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom chart: BP/SP Indicator */}
+        <h3 className="mb-1 text-sm font-bold text-gray-900">
+          Buying Power / Selling Pressure Index (Volume-Based, 21-Week MA)
+        </h3>
+        {indOpt && (
+          <ReactECharts option={indOpt} style={{ height: 200 }} notMerge />
         )}
       </div>
 
-      {/* Performance Table */}
-      <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-4">
-        <h3 className="mb-3 text-xs font-medium text-gray-400">
+      {/* ── Plot 2: Backtest ── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        {/* Top chart: Equity Curves */}
+        <h3 className="mb-0.5 text-sm font-bold text-gray-900">
+          BPSP Timing Strategy vs SPX Benchmark
+        </h3>
+        <p className="mb-2 text-xs text-gray-500">
+          Buy SPX when BP &gt; SP, Hold Cash when SP &gt; BP
+        </p>
+        <div className="relative mb-4">
+          {eqOpt && (
+            <ReactECharts option={eqOpt} style={{ height: 350 }} notMerge />
+          )}
+          {/* Performance stats overlay */}
+          <div
+            className="pointer-events-none absolute rounded border border-amber-400/70 bg-amber-50/95 px-2 py-1.5 font-mono text-xs leading-5 text-gray-700 shadow-sm"
+            style={{ left: 76, top: 40 }}
+          >
+            <div>
+              <span className="text-gray-500">Strategy CAGR: </span>
+              <span className={pctColor(s.cagr)}>{fmt(s.cagr)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">SPX CAGR: </span>
+              <span className={pctColor(b.cagr)}>{fmt(b.cagr)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Strategy Max DD:</span>
+              <span className="text-red-600"> {fmt(s.max_drawdown)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">SPX Max DD: </span>
+              <span className="text-red-600"> {fmt(b.max_drawdown)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Strategy Sharpe:</span>
+              <span className="text-blue-700"> {fmt(s.sharpe, false)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Time in Market: </span>
+              <span className="text-green-700">
+                {fmt(metrics.time_in_market)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Middle chart: Drawdowns */}
+        <h3 className="mb-1 text-sm font-bold text-gray-900">
+          Drawdown Comparison
+        </h3>
+        <div className="mb-4">
+          {ddOpt && (
+            <ReactECharts option={ddOpt} style={{ height: 200 }} notMerge />
+          )}
+        </div>
+
+        {/* Bottom chart: Signal / Market Exposure */}
+        <h3 className="mb-1 text-sm font-bold text-gray-900">
+          Market Exposure
+        </h3>
+        {sigOpt && (
+          <ReactECharts option={sigOpt} style={{ height: 120 }} notMerge />
+        )}
+      </div>
+
+      {/* ── Performance Table ── */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-3 text-sm font-bold text-gray-900">
           Performance Comparison
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-gray-800">
-                <th className="px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-gray-500">
+              <tr className="border-b border-gray-200">
+                <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   Metric
                 </th>
-                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-green-500">
-                  BPBP Strategy
+                <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-green-700">
+                  BPSP Strategy
                 </th>
-                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-gray-500">
-                  SPY Benchmark
+                <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+                  SPX Benchmark
                 </th>
               </tr>
             </thead>
             <tbody className="font-mono">
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Total Return</td>
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Total Return</td>
                 <td
                   className={`px-3 py-1.5 text-right ${pctColor(s.total_return)}`}
                 >
@@ -580,8 +733,8 @@ export default function BpbpDashboard() {
                   {fmt(b.total_return)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">CAGR</td>
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">CAGR</td>
                 <td className={`px-3 py-1.5 text-right ${pctColor(s.cagr)}`}>
                   {fmt(s.cagr)}
                 </td>
@@ -589,66 +742,66 @@ export default function BpbpDashboard() {
                   {fmt(b.cagr)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Volatility</td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Volatility</td>
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmt(s.volatility)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmt(b.volatility)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Sharpe Ratio</td>
-                <td className="px-3 py-1.5 text-right text-blue-400">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Sharpe Ratio</td>
+                <td className="px-3 py-1.5 text-right text-blue-700">
                   {fmt(s.sharpe, false)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmt(b.sharpe, false)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Max Drawdown</td>
-                <td className="px-3 py-1.5 text-right text-red-400">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Max Drawdown</td>
+                <td className="px-3 py-1.5 text-right text-red-600">
                   {fmt(s.max_drawdown)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-red-400">
+                <td className="px-3 py-1.5 text-right text-red-600">
                   {fmt(b.max_drawdown)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Win Rate (weeks)</td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Win Rate (weeks)</td>
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmt(s.win_rate)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmt(b.win_rate)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">
                   Final Equity ($100)
                 </td>
-                <td className="px-3 py-1.5 text-right text-white">
+                <td className="px-3 py-1.5 text-right font-semibold text-gray-900">
                   {fmtDollar(s.final_equity)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-300">
+                <td className="px-3 py-1.5 text-right text-gray-700">
                   {fmtDollar(b.final_equity)}
                 </td>
               </tr>
-              <tr className="border-b border-gray-800/50">
-                <td className="px-3 py-1.5 text-gray-400">Time in Market</td>
-                <td className="px-3 py-1.5 text-right text-cyan-400">
+              <tr className="border-b border-gray-100">
+                <td className="px-3 py-1.5 text-gray-600">Time in Market</td>
+                <td className="px-3 py-1.5 text-right text-green-700">
                   {fmt(metrics.time_in_market)}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-500">—</td>
+                <td className="px-3 py-1.5 text-right text-gray-400">—</td>
               </tr>
               <tr>
-                <td className="px-3 py-1.5 text-gray-400">Backtest Period</td>
-                <td className="px-3 py-1.5 text-right text-gray-500">
+                <td className="px-3 py-1.5 text-gray-600">Backtest Period</td>
+                <td className="px-3 py-1.5 text-right text-gray-600">
                   {metrics.start_date} → {metrics.end_date}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-600">
+                <td className="px-3 py-1.5 text-right text-gray-500">
                   {metrics.years}yr / {metrics.weeks}wk
                 </td>
               </tr>
@@ -657,13 +810,13 @@ export default function BpbpDashboard() {
         </div>
       </div>
 
-      {/* Methodology Note */}
-      <div className="px-1 text-[10px] text-gray-600">
+      {/* ── Methodology Note ── */}
+      <div className="px-1 text-[10px] text-gray-500">
         <p>
-          BPBP = Bull Power / Bear Pressure. Volume-weighted breadth indicator
-          computed from the full survivorship-bias-free universe (~3,000
-          stocks). 21-week SMA applied. Strategy: hold SPY when BP {`>`} SP,
-          cash otherwise. Signal lagged 1 week (no look-ahead).
+          BPBP = Buying Power / Selling Pressure. Volume-weighted breadth
+          indicator computed from the full survivorship-bias-free universe
+          (~3,000 stocks). 21-week SMA applied. Strategy: hold SPX when BP {`>`}{" "}
+          SP, cash otherwise. Signal lagged 1 week (no look-ahead).
         </p>
       </div>
     </div>

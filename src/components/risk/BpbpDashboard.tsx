@@ -419,6 +419,8 @@ export default function BpbpDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState("5y")
+  const [updating, setUpdating] = useState(false)
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
 
   const fetchData = useCallback(async (p: string) => {
     setLoading(true)
@@ -435,6 +437,29 @@ export default function BpbpDashboard() {
       setLoading(false)
     }
   }, [])
+
+  const handleUpdate = useCallback(async () => {
+    setUpdating(true)
+    setUpdateMsg(null)
+    try {
+      const res = await fetch("/api/bpbp/update")
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      if (json.status === "FAIL") throw new Error(json.error || "Update failed")
+      const added = json.weeks_added ?? 0
+      setUpdateMsg(
+        added > 0
+          ? `✓ Added ${added} week${added > 1 ? "s" : ""} (through ${json.latest_date})`
+          : "✓ Already up to date",
+      )
+      // Re-fetch chart data with fresh data
+      await fetchData(period)
+    } catch (e: unknown) {
+      setUpdateMsg(`✗ ${e instanceof Error ? e.message : "Update failed"}`)
+    } finally {
+      setUpdating(false)
+    }
+  }, [fetchData, period])
 
   useEffect(() => {
     fetchData(period)
@@ -563,6 +588,20 @@ export default function BpbpDashboard() {
             {data.compute_ms}ms · Data from {data.metrics.start_date} to{" "}
             {data.metrics.end_date} ({data.metrics.weeks} weeks)
           </span>
+          <button
+            onClick={handleUpdate}
+            disabled={updating}
+            className="ml-auto rounded border border-gray-300 bg-white px-2.5 py-0.5 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {updating ? "Updating…" : "↻ Update"}
+          </button>
+          {updateMsg && (
+            <span
+              className={`text-[10px] ${updateMsg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}
+            >
+              {updateMsg}
+            </span>
+          )}
         </div>
       </div>
 

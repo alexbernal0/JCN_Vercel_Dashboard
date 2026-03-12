@@ -9,6 +9,10 @@
     {
       "path": "/api/sync/cron",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/bpbp/update",
+      "schedule": "0 6 * * 6"
     }
   ]
 }

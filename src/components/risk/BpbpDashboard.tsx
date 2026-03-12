@@ -555,9 +555,15 @@ export default function BpbpDashboard() {
             </span>
           </div>
         </div>
-        <p className="mt-1 text-[10px] text-gray-500">
-          {latest.date} · {data.compute_ms}ms
-        </p>
+        <div className="mt-2 flex items-center gap-3 border-t border-gray-200/50 pt-2">
+          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+            Last Updated: {latest.date}
+          </span>
+          <span className="text-[10px] text-gray-400">
+            {data.compute_ms}ms · Data from {data.metrics.start_date} to{" "}
+            {data.metrics.end_date} ({data.metrics.weeks} weeks)
+          </span>
+        </div>
       </div>
 
       {/* ── Period Selector ── */}

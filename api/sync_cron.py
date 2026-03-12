@@ -17,6 +17,7 @@ from .sync_stage0 import run_stage0
 from .sync_stage1 import run_stage1
 from .sync_stage2 import run_stage2
 from .sync_stage3 import run_stage3
+from .bpbp_update import run_bpbp_update
 
 
 async def run_cron_pipeline() -> Dict[str, Any]:
@@ -114,6 +115,23 @@ async def run_cron_pipeline() -> Dict[str, Any]:
     except Exception as e:
         result["stages"]["stage3"] = {"status": "FAIL", "error": str(e)[:300]}
         result["overall_status"] = "WARN"
+
+    # ── BPBP Update (runs on Fridays after daily sync) ──
+    today_dow = datetime.now(timezone.utc).weekday()  # 0=Mon, 4=Fri
+    if today_dow == 4:  # Friday
+        try:
+            bpbp = await run_bpbp_update()
+            result["stages"]["bpbp_update"] = {
+                "status": bpbp.get("status", "FAIL"),
+                "weeks_added": bpbp.get("weeks_added", 0),
+                "latest_date": bpbp.get("latest_date"),
+                "execution_ms": bpbp.get("execution_ms", 0),
+            }
+        except Exception as e:
+            result["stages"]["bpbp_update"] = {"status": "FAIL", "error": str(e)[:300]}
+            # BPBP failure doesn't fail the overall pipeline
+    else:
+        result["stages"]["bpbp_update"] = {"status": "SKIP", "message": f"Runs on Fridays only (today=dow {today_dow})"}
 
     result["execution_ms"] = round((time.time() - t0) * 1000)
     return result

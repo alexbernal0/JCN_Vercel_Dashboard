@@ -103,6 +103,7 @@ from .screener import (
 
 # Import BPBP (Bull Power / Bear Pressure) module
 from .bpbp import get_bpbp_indicator
+from .bpbp_update import run_bpbp_update
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -150,6 +151,7 @@ async def root():
             "/api/stock/analysis": "GET - Full stock analysis (all 10 modules)",
             "/api/screener": "POST - Stock screener with preset filters (FinViz-style)",
             "/api/bpbp": "GET - BPBP indicator, backtest, and metrics (period: 1y/3y/5y/10y/all)",
+            "/api/bpbp/update": "GET - Update BPBP with new weekly data from EODHD (secured)",
             "/api/sync/cron": "GET - Cron-triggered full pipeline (secured with CRON_SECRET)",
             "/api/sync/history": "GET - Recent sync run history"
         }
@@ -438,6 +440,29 @@ async def bpbp_endpoint(period: str = Query("5y", description="Period: 1y, 3y, 5
     except Exception as e:
         logger.error(f"Error in BPBP: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"BPBP computation failed: {str(e)}")
+
+
+@app.get("/api/bpbp/update")
+async def bpbp_update_endpoint(request: Request):
+    """
+    Update BPBP indicator — extend NDR_BP_SP_history with new weekly rows.
+    Fetches missing weeks from EODHD, computes BP/SP, appends to MotherDuck.
+    Secured with CRON_SECRET when called via cron.
+    """
+    cron_secret = os.getenv("CRON_SECRET", "")
+    if cron_secret:
+        auth = request.headers.get("authorization", "")
+        if auth != f"Bearer {cron_secret}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        logger.info("BPBP update triggered")
+        result = await run_bpbp_update()
+        logger.info(f"BPBP update: {result.get('weeks_added', 0)} weeks added, status={result.get('status')}")
+        return result
+    except Exception as e:
+        logger.error(f"Error in BPBP update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"BPBP update failed: {str(e)}")
 
 
 @app.get("/api/sync/stage0")

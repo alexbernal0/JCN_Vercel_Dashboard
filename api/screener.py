@@ -36,7 +36,7 @@ os.environ.setdefault("HOME", "/tmp")
 class ScreenerFilter(BaseModel):
     """A single filter: field + operator + value."""
     field: str
-    op: str = "gte"  # gte, lte, eq, in
+    op: str = "gte"  # gte, lte, eq, in, between, top_n
     value: Any = None
 
 
@@ -203,7 +203,15 @@ def _build_where_clause(filters: List[ScreenerFilter]) -> tuple:
 
         col = FIELD_MAP[f.field]
 
-        if f.op == "gte" and f.value is not None:
+        if f.op == "top_n" and f.field == "market_cap" and f.value is not None:
+            # TOP N by market cap: subquery to get top N symbols ranked by market_cap
+            n = int(f.value)
+            clauses.append(f"""snap.symbol IN (
+                SELECT symbol FROM PROD_EODHD.main.PROD_DASHBOARD_SNAPSHOT
+                WHERE is_etf IS NOT TRUE AND market_cap IS NOT NULL
+                ORDER BY market_cap DESC LIMIT {n}
+            )""")
+        elif f.op == "gte" and f.value is not None:
             clauses.append(f"{col} >= ?")
             params.append(f.value)
         elif f.op == "lte" and f.value is not None:

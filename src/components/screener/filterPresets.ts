@@ -36,13 +36,59 @@ const SCORE_OPTIONS: FilterOption[] = [
 
 const MARKET_CAP_OPTIONS: FilterOption[] = [
   { label: "Any", value: { op: "gte", value: 0 } },
-  { label: "Mega (200B+)", value: { op: "gte", value: 200e9 } },
-  { label: "Large (10B+)", value: { op: "gte", value: 10e9 } },
-  { label: "Mid (2B-10B)", value: { op: "between", value: [2e9, 10e9] } },
-  { label: "Small (300M-2B)", value: { op: "between", value: [300e6, 2e9] } },
-  { label: "Micro (<300M)", value: { op: "lte", value: 300e6 } },
-  { label: "Large+  (10B+)", value: { op: "gte", value: 10e9 } },
-  { label: "Mid+  (2B+)", value: { op: "gte", value: 2e9 } },
+
+  // --- Greater-Than Cutoffs (minimum floor) ---
+  { label: "$200B+ \u2014 Mega", value: { op: "gte", value: 200e9 } },
+  { label: "$100B+ \u2014 Mega / Large", value: { op: "gte", value: 100e9 } },
+  { label: "$50B+ \u2014 Large", value: { op: "gte", value: 50e9 } },
+  { label: "$20B+ \u2014 Large", value: { op: "gte", value: 20e9 } },
+  { label: "$10B+ \u2014 Large / Mid", value: { op: "gte", value: 10e9 } },
+  { label: "$5B+ \u2014 Mid", value: { op: "gte", value: 5e9 } },
+  { label: "$2B+ \u2014 Mid", value: { op: "gte", value: 2e9 } },
+  { label: "$1B+ \u2014 Mid / Small", value: { op: "gte", value: 1e9 } },
+  { label: "$500M+ \u2014 Small", value: { op: "gte", value: 500e6 } },
+  { label: "$200M+ \u2014 Small", value: { op: "gte", value: 200e6 } },
+  { label: "$100M+ \u2014 Small / Micro", value: { op: "gte", value: 100e6 } },
+  { label: "$50M+ \u2014 Micro", value: { op: "gte", value: 50e6 } },
+  { label: "$20M+ \u2014 Micro", value: { op: "gte", value: 20e6 } },
+
+  // --- Exclusive Segments (bounded ranges) ---
+  {
+    label: "Mega Only ($200B+)",
+    value: { op: "between", value: [200e9, 999e12] },
+  },
+  {
+    label: "Large Only ($10B\u2013$200B)",
+    value: { op: "between", value: [10e9, 200e9] },
+  },
+  {
+    label: "Mid Only ($2B\u2013$10B)",
+    value: { op: "between", value: [2e9, 10e9] },
+  },
+  {
+    label: "Small Only ($300M\u2013$2B)",
+    value: { op: "between", value: [300e6, 2e9] },
+  },
+  {
+    label: "Micro Only ($20M\u2013$300M)",
+    value: { op: "between", value: [20e6, 300e6] },
+  },
+
+  // --- Combo Segments (adjacent cap groups) ---
+  {
+    label: "Large + Mid ($2B\u2013$200B)",
+    value: { op: "between", value: [2e9, 200e9] },
+  },
+  {
+    label: "Mid + Small ($300M\u2013$10B)",
+    value: { op: "between", value: [300e6, 10e9] },
+  },
+
+  // --- TOP N by Market Cap ---
+  { label: "TOP 50", value: { op: "top_n", value: 50 } },
+  { label: "TOP 100", value: { op: "top_n", value: 100 } },
+  { label: "TOP 200", value: { op: "top_n", value: 200 } },
+  { label: "TOP 500", value: { op: "top_n", value: 500 } },
 ]
 
 const SECTOR_OPTIONS: FilterOption[] = [

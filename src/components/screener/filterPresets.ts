@@ -127,6 +127,562 @@ const SECTOR_OPTIONS: FilterOption[] = [
   },
 ]
 
+const INDUSTRY_OPTIONS: FilterOption[] = [
+  { label: "Any", value: { op: "eq", value: "" } },
+  {
+    label: "Advertising Agencies",
+    value: { op: "eq", value: "Advertising Agencies" },
+  },
+  {
+    label: "Aerospace & Defense",
+    value: { op: "eq", value: "Aerospace & Defense" },
+  },
+  {
+    label: "Agricultural Inputs",
+    value: { op: "eq", value: "Agricultural Inputs" },
+  },
+  {
+    label: "Air Freight & Logistics",
+    value: { op: "eq", value: "Air Freight & Logistics" },
+  },
+  {
+    label: "Airlines",
+    value: { op: "in", value: ["Airlines", "Passenger Airlines"] },
+  },
+  {
+    label: "Apparel Manufacturing",
+    value: { op: "eq", value: "Apparel Manufacturing" },
+  },
+  { label: "Apparel Retail", value: { op: "eq", value: "Apparel Retail" } },
+  { label: "Asset Management", value: { op: "eq", value: "Asset Management" } },
+  {
+    label: "Auto & Truck Dealerships",
+    value: { op: "eq", value: "Auto & Truck Dealerships" },
+  },
+  {
+    label: "Auto Manufacturers",
+    value: { op: "in", value: ["Auto Manufacturers", "Automobiles"] },
+  },
+  {
+    label: "Auto Parts",
+    value: { op: "in", value: ["Auto Parts", "Automobile Components"] },
+  },
+  { label: "Banks", value: { op: "in", value: ["Banks", "Banks - Regional"] } },
+  {
+    label: "Beverages",
+    value: {
+      op: "in",
+      value: [
+        "Beverages",
+        "Beverages - Non-Alcoholic",
+        "Beverages - Wineries & Distilleries",
+      ],
+    },
+  },
+  { label: "Biotechnology", value: { op: "eq", value: "Biotechnology" } },
+  {
+    label: "Broadline Retail",
+    value: {
+      op: "in",
+      value: [
+        "Broadline Retail",
+        "Internet Retail",
+        "Internet & Direct Marketing Retail",
+      ],
+    },
+  },
+  {
+    label: "Building Materials",
+    value: {
+      op: "in",
+      value: [
+        "Building Materials",
+        "Building Products",
+        "Building Products & Equipment",
+      ],
+    },
+  },
+  {
+    label: "Business Services",
+    value: {
+      op: "in",
+      value: ["Business Equipment & Supplies", "Specialty Business Services"],
+    },
+  },
+  { label: "Capital Markets", value: { op: "eq", value: "Capital Markets" } },
+  {
+    label: "Chemicals",
+    value: { op: "in", value: ["Chemicals", "Specialty Chemicals"] },
+  },
+  {
+    label: "Commercial Services",
+    value: {
+      op: "in",
+      value: ["Commercial Services & Supplies", "Professional Services"],
+    },
+  },
+  {
+    label: "Communications Equipment",
+    value: { op: "eq", value: "Communications Equipment" },
+  },
+  {
+    label: "Computer Hardware",
+    value: { op: "eq", value: "Computer Hardware" },
+  },
+  {
+    label: "Conglomerates",
+    value: { op: "in", value: ["Conglomerates", "Industrial Conglomerates"] },
+  },
+  {
+    label: "Construction & Engineering",
+    value: {
+      op: "in",
+      value: ["Construction & Engineering", "Engineering & Construction"],
+    },
+  },
+  {
+    label: "Construction Materials",
+    value: { op: "eq", value: "Construction Materials" },
+  },
+  {
+    label: "Consulting Services",
+    value: { op: "eq", value: "Consulting Services" },
+  },
+  {
+    label: "Consumer Electronics",
+    value: { op: "eq", value: "Consumer Electronics" },
+  },
+  {
+    label: "Consumer Finance",
+    value: { op: "in", value: ["Consumer Finance", "Credit Services"] },
+  },
+  {
+    label: "Containers & Packaging",
+    value: {
+      op: "in",
+      value: ["Containers & Packaging", "Packaging & Containers"],
+    },
+  },
+  { label: "Copper", value: { op: "eq", value: "Copper" } },
+  {
+    label: "Diagnostics & Research",
+    value: { op: "eq", value: "Diagnostics & Research" },
+  },
+  { label: "Discount Stores", value: { op: "eq", value: "Discount Stores" } },
+  {
+    label: "Distributors",
+    value: {
+      op: "in",
+      value: [
+        "Distributors",
+        "Industrial Distribution",
+        "Electronics & Computer Distribution",
+      ],
+    },
+  },
+  {
+    label: "Drug Manufacturers",
+    value: {
+      op: "in",
+      value: [
+        "Drug Manufacturers - General",
+        "Drug Manufacturers - Specialty & Generic",
+        "Pharmaceuticals",
+      ],
+    },
+  },
+  {
+    label: "Education & Training",
+    value: { op: "eq", value: "Education & Training Services" },
+  },
+  {
+    label: "Electric Utilities",
+    value: {
+      op: "in",
+      value: ["Electric Utilities", "Utilities - Regulated Electric"],
+    },
+  },
+  {
+    label: "Electrical Equipment",
+    value: {
+      op: "in",
+      value: ["Electrical Equipment", "Electrical Equipment & Parts"],
+    },
+  },
+  {
+    label: "Electronic Components",
+    value: {
+      op: "in",
+      value: [
+        "Electronic Components",
+        "Electronic Equipment, Instruments & Components",
+      ],
+    },
+  },
+  {
+    label: "Entertainment",
+    value: {
+      op: "in",
+      value: ["Entertainment", "Electronic Gaming & Multimedia"],
+    },
+  },
+  {
+    label: "Energy Equipment & Services",
+    value: { op: "eq", value: "Energy Equipment & Services" },
+  },
+  {
+    label: "Farm & Heavy Machinery",
+    value: { op: "eq", value: "Farm & Heavy Construction Machinery" },
+  },
+  { label: "Farm Products", value: { op: "eq", value: "Farm Products" } },
+  {
+    label: "Financial Services",
+    value: {
+      op: "in",
+      value: ["Financial Services", "Financial Conglomerates"],
+    },
+  },
+  {
+    label: "Food Distribution",
+    value: { op: "eq", value: "Food Distribution" },
+  },
+  { label: "Food Products", value: { op: "eq", value: "Food Products" } },
+  {
+    label: "Furnishings & Appliances",
+    value: {
+      op: "in",
+      value: ["Furnishings, Fixtures & Appliances", "Household Durables"],
+    },
+  },
+  {
+    label: "Gambling & Casinos",
+    value: { op: "in", value: ["Gambling", "Resorts & Casinos"] },
+  },
+  { label: "Gas Utilities", value: { op: "eq", value: "Gas Utilities" } },
+  { label: "Gold", value: { op: "eq", value: "Gold" } },
+  {
+    label: "Grocery Stores",
+    value: {
+      op: "in",
+      value: ["Grocery Stores", "Consumer Staples Distribution & Retail"],
+    },
+  },
+  {
+    label: "Ground Transportation",
+    value: { op: "eq", value: "Ground Transportation" },
+  },
+  {
+    label: "Health Care Equipment",
+    value: {
+      op: "in",
+      value: [
+        "Health Care Equipment & Supplies",
+        "Medical Devices",
+        "Medical Instruments & Supplies",
+      ],
+    },
+  },
+  {
+    label: "Health Care Providers",
+    value: {
+      op: "in",
+      value: ["Health Care Providers & Services", "Medical Distribution"],
+    },
+  },
+  {
+    label: "Health Care REITs",
+    value: {
+      op: "in",
+      value: ["Health Care REITs", "REIT - Healthcare Facilities"],
+    },
+  },
+  {
+    label: "Health Care Technology",
+    value: {
+      op: "in",
+      value: ["Health Care Technology", "Health Information Services"],
+    },
+  },
+  {
+    label: "Home Improvement Retail",
+    value: { op: "eq", value: "Home Improvement Retail" },
+  },
+  {
+    label: "Hotels & Restaurants",
+    value: {
+      op: "in",
+      value: ["Hotels, Restaurants & Leisure", "Restaurants"],
+    },
+  },
+  {
+    label: "Household Products",
+    value: {
+      op: "in",
+      value: [
+        "Household Products",
+        "Household & Personal Products",
+        "Personal Care Products",
+      ],
+    },
+  },
+  {
+    label: "IT Services",
+    value: {
+      op: "in",
+      value: ["IT Services", "Information Technology Services"],
+    },
+  },
+  {
+    label: "Independent Power Producers",
+    value: {
+      op: "eq",
+      value: "Independent Power and Renewable Electricity Producers",
+    },
+  },
+  {
+    label: "Insurance",
+    value: {
+      op: "in",
+      value: [
+        "Insurance",
+        "Insurance - Diversified",
+        "Insurance - Life",
+        "Insurance - Property & Casualty",
+        "Insurance - Reinsurance",
+        "Insurance Brokers",
+      ],
+    },
+  },
+  {
+    label: "Interactive Media",
+    value: {
+      op: "in",
+      value: ["Interactive Media & Services", "Internet Content & Information"],
+    },
+  },
+  {
+    label: "Leisure Products",
+    value: { op: "in", value: ["Leisure Products", "Leisure"] },
+  },
+  {
+    label: "Life Sciences Tools",
+    value: { op: "eq", value: "Life Sciences Tools & Services" },
+  },
+  {
+    label: "Lumber & Wood",
+    value: { op: "eq", value: "Lumber & Wood Production" },
+  },
+  {
+    label: "Luxury Goods",
+    value: {
+      op: "in",
+      value: ["Luxury Goods", "Textiles, Apparel & Luxury Goods"],
+    },
+  },
+  {
+    label: "Machinery",
+    value: { op: "in", value: ["Machinery", "Specialty Industrial Machinery"] },
+  },
+  {
+    label: "Marine Transportation",
+    value: { op: "in", value: ["Marine Shipping", "Marine Transportation"] },
+  },
+  {
+    label: "Media",
+    value: { op: "in", value: ["Media", "Diversified Consumer Services"] },
+  },
+  {
+    label: "Metals & Mining",
+    value: {
+      op: "in",
+      value: [
+        "Metals & Mining",
+        "Other Industrial Metals & Mining",
+        "Other Precious Metals & Mining",
+        "Silver",
+      ],
+    },
+  },
+  { label: "Multi-Utilities", value: { op: "eq", value: "Multi-Utilities" } },
+  { label: "Oil & Gas E&P", value: { op: "eq", value: "Oil & Gas E&P" } },
+  {
+    label: "Oil & Gas Equipment",
+    value: {
+      op: "in",
+      value: ["Oil & Gas Equipment & Services", "Oil & Gas Drilling"],
+    },
+  },
+  {
+    label: "Oil & Gas Midstream",
+    value: { op: "eq", value: "Oil & Gas Midstream" },
+  },
+  {
+    label: "Oil & Gas Refining",
+    value: {
+      op: "in",
+      value: ["Oil & Gas Refining & Marketing", "Oil, Gas & Consumable Fuels"],
+    },
+  },
+  { label: "Packaged Foods", value: { op: "eq", value: "Packaged Foods" } },
+  {
+    label: "Paper & Forest Products",
+    value: {
+      op: "in",
+      value: ["Paper & Forest Products", "Paper & Paper Products"],
+    },
+  },
+  {
+    label: "Personal Services",
+    value: { op: "eq", value: "Personal Services" },
+  },
+  {
+    label: "Pollution & Treatment",
+    value: { op: "eq", value: "Pollution & Treatment Controls" },
+  },
+  { label: "Railroads", value: { op: "eq", value: "Railroads" } },
+  {
+    label: "REITs - Diversified",
+    value: { op: "in", value: ["Diversified REITs", "REIT - Diversified"] },
+  },
+  {
+    label: "REITs - Industrial",
+    value: { op: "eq", value: "REIT - Industrial" },
+  },
+  {
+    label: "REITs - Mortgage",
+    value: {
+      op: "in",
+      value: [
+        "REIT - Mortgage",
+        "Mortgage Real Estate Investment Trusts (REITs)",
+        "Thrifts & Mortgage Finance",
+      ],
+    },
+  },
+  {
+    label: "REITs - Office",
+    value: { op: "in", value: ["Office REITs", "REIT - Office"] },
+  },
+  {
+    label: "REITs - Residential",
+    value: {
+      op: "in",
+      value: ["Residential REITs", "Residential Construction"],
+    },
+  },
+  {
+    label: "REITs - Retail",
+    value: { op: "in", value: ["Retail REITs", "REIT - Retail"] },
+  },
+  {
+    label: "REITs - Specialty",
+    value: { op: "in", value: ["Specialized REITs", "REIT - Specialty"] },
+  },
+  {
+    label: "Real Estate Services",
+    value: {
+      op: "in",
+      value: [
+        "Real Estate Services",
+        "Real Estate Management & Development",
+        "Real Estate - Development",
+      ],
+    },
+  },
+  {
+    label: "Rental & Leasing",
+    value: { op: "eq", value: "Rental & Leasing Services" },
+  },
+  {
+    label: "Scientific Instruments",
+    value: { op: "eq", value: "Scientific & Technical Instruments" },
+  },
+  {
+    label: "Security & Protection",
+    value: { op: "eq", value: "Security & Protection Services" },
+  },
+  {
+    label: "Semiconductors",
+    value: {
+      op: "in",
+      value: [
+        "Semiconductors",
+        "Semiconductors & Semiconductor Equipment",
+        "Semiconductor Equipment & Materials",
+      ],
+    },
+  },
+  {
+    label: "Software - Application",
+    value: { op: "eq", value: "Software - Application" },
+  },
+  {
+    label: "Software - Infrastructure",
+    value: { op: "eq", value: "Software - Infrastructure" },
+  },
+  {
+    label: "Software (All)",
+    value: {
+      op: "in",
+      value: [
+        "Software",
+        "Software - Application",
+        "Software - Infrastructure",
+      ],
+    },
+  },
+  { label: "Solar", value: { op: "eq", value: "Solar" } },
+  { label: "Specialty Retail", value: { op: "eq", value: "Specialty Retail" } },
+  {
+    label: "Staffing & Employment",
+    value: { op: "eq", value: "Staffing & Employment Services" },
+  },
+  { label: "Steel", value: { op: "in", value: ["Steel", "Coking Coal"] } },
+  {
+    label: "Telecom Services",
+    value: {
+      op: "in",
+      value: [
+        "Telecom Services",
+        "Diversified Telecommunication Services",
+        "Wireless Telecommunication Services",
+      ],
+    },
+  },
+  {
+    label: "Textile Manufacturing",
+    value: { op: "eq", value: "Textile Manufacturing" },
+  },
+  { label: "Tobacco", value: { op: "eq", value: "Tobacco" } },
+  {
+    label: "Trading Companies",
+    value: { op: "eq", value: "Trading Companies & Distributors" },
+  },
+  {
+    label: "Transportation Infrastructure",
+    value: {
+      op: "in",
+      value: [
+        "Transportation Infrastructure",
+        "Airports & Air Services",
+        "Integrated Freight & Logistics",
+      ],
+    },
+  },
+  { label: "Travel Services", value: { op: "eq", value: "Travel Services" } },
+  { label: "Uranium", value: { op: "eq", value: "Uranium" } },
+  {
+    label: "Utilities - Renewable",
+    value: { op: "eq", value: "Utilities - Renewable" },
+  },
+  { label: "Waste Management", value: { op: "eq", value: "Waste Management" } },
+  { label: "Water Utilities", value: { op: "eq", value: "Water Utilities" } },
+  {
+    label: "Tech Hardware & Storage",
+    value: { op: "eq", value: "Technology Hardware, Storage & Peripherals" },
+  },
+]
+
 const PE_OPTIONS: FilterOption[] = [
   { label: "Any", value: { op: "gte", value: -9999 } },
   { label: "Low (<15)", value: { op: "lte", value: 15 } },
@@ -246,6 +802,7 @@ export const FILTER_TABS: FilterTab[] = [
     filters: [
       { field: "market_cap", label: "Market Cap", options: MARKET_CAP_OPTIONS },
       { field: "gics_sector", label: "Sector", options: SECTOR_OPTIONS },
+      { field: "industry", label: "Industry", options: INDUSTRY_OPTIONS },
     ],
   },
   {

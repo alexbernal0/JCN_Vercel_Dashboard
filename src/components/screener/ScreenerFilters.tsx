@@ -60,8 +60,11 @@ export default function ScreenerFilters({
 
       // If not "Any" (index 0), add the filter
       if (optionIndex !== 0) {
-        // Special case: sector "Any" has value ""
-        if (field === "gics_sector" && option.value.value === "") {
+        // Special case: sector/industry "Any" has value ""
+        if (
+          (field === "gics_sector" || field === "industry") &&
+          option.value.value === ""
+        ) {
           // Don't add — it's "Any"
         } else {
           newFilters.push({

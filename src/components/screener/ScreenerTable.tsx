@@ -10,6 +10,7 @@ import {
   type ColumnDef,
   type SortingState,
   type VisibilityState,
+  type ColumnResizeMode,
 } from "@tanstack/react-table"
 
 // ---------------------------------------------------------------------------
@@ -299,7 +300,8 @@ export default function ScreenerTable({
           const val = info.getValue()
           const formatted = formatCell(val, cfg.format, cfg.decimals)
 
-          let className = "text-xs whitespace-nowrap"
+          let className =
+            "text-xs whitespace-nowrap overflow-hidden text-ellipsis"
           if (cfg.format === "pct") className += ` ${pctCellColor(val)}`
           if (cfg.format === "score") className += ` ${scoreCellBg(val)}`
           if (
@@ -315,6 +317,8 @@ export default function ScreenerTable({
           return <span className={className}>{formatted}</span>
         },
         enableSorting: true,
+        enableResizing: true,
+        minSize: 50,
         size:
           col === "company_name"
             ? 180
@@ -329,6 +333,9 @@ export default function ScreenerTable({
     })
   }, [apiColumns])
 
+  // Column resize mode
+  const [columnResizeMode] = useState<ColumnResizeMode>("onChange")
+
   // TanStack Table instance
   const table = useReactTable({
     data,
@@ -339,6 +346,8 @@ export default function ScreenerTable({
     },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
+    columnResizeMode,
+    enableColumnResizing: true,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -566,7 +575,10 @@ export default function ScreenerTable({
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
-        <table className="w-full text-left text-xs">
+        <table
+          className="text-left text-xs"
+          style={{ width: table.getCenterTotalSize() }}
+        >
           <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -580,14 +592,14 @@ export default function ScreenerTable({
                   return (
                     <th
                       key={header.id}
-                      onClick={header.column.getToggleSortingHandler()}
-                      className={`cursor-pointer select-none whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold text-gray-600 hover:bg-gray-100 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 ${
+                      className={`relative select-none whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold text-gray-600 dark:border-gray-800 dark:text-gray-400 ${
                         isNumeric ? "text-right" : "text-left"
                       }`}
                       style={{ width: header.getSize() }}
                     >
                       <div
-                        className={`flex items-center gap-1 ${isNumeric ? "justify-end" : ""}`}
+                        className={`flex cursor-pointer items-center gap-1 hover:text-gray-900 dark:hover:text-gray-200 ${isNumeric ? "justify-end" : ""}`}
+                        onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(
                           header.column.columnDef.header,
@@ -598,6 +610,17 @@ export default function ScreenerTable({
                           desc: " ▼",
                         }[header.column.getIsSorted() as string] ?? ""}
                       </div>
+                      {/* Resize handle */}
+                      <div
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                        onDoubleClick={() => header.column.resetSize()}
+                        className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${
+                          header.column.getIsResizing()
+                            ? "bg-blue-500"
+                            : "bg-transparent hover:bg-gray-300 dark:hover:bg-gray-600"
+                        }`}
+                      />
                     </th>
                   )
                 })}
@@ -666,7 +689,11 @@ export default function ScreenerTable({
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-2 py-1.5">
+                    <td
+                      key={cell.id}
+                      className="overflow-hidden text-ellipsis px-2 py-1.5"
+                      style={{ width: cell.column.getSize() }}
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
